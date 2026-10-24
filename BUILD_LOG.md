@@ -37,6 +37,7 @@ Honest record of which tool or agent produced each part of the project.
 | Sat night | Claude Code | M11 prep | Pi setup script, systemd unit, Mac push script (not run); PUBLIC_DEMO waiting for a spec. |
 | Sun early | Claude Code | PUBLIC_DEMO | `server/public_demo.py` and the 7 approved rules (+ Secure cookie, ward cap, `/api/public-config`), AGENTS.md §20, `deploy/PUBLIC_DEMO.md` + public systemd unit + Caddyfile (nothing deployed). |
 | Sat night | Cursor (Grok) | M8 | Pico firmware: `firmware/main.py` (50 Hz `ticks_diff` loop, UDP with USB-serial fallback, commands on UDP 5006 and stdin), `firmware/mma8452q.py`, `firmware/secrets_example.py`. Packets checked with `server.schema.parse_packet` against the rules in `tests/test_schema.py` (25 samples, `read_u16` bit pattern, 3-decimal accel, under 1400 bytes). |
+| Sun early | Claude Code | M10 | "Calibrate supine" (API matched to Cursor's button), demo fast warm-up (first rate at 15 s, display-only), `DEMO.md` runbook. |
 
 ## Prompts that worked
 

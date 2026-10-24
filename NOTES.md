@@ -352,6 +352,11 @@ records the reasoning and smaller choices.
   the first 60 s of a stream (`end < rate window`), so it never papers over a missing rate later
   (e.g. during a central apnea or after motion). `demo.fast_warmup: false` restores 50 s.
 
+- **DEMO.md** (repo root): checklist, exact startup commands, the live script with expected alarms
+  and timings, the simulated fallback timeline (measured from the `demo` scenario), and a
+  failure table. UI labels taken from Cursor's pages (read-only). Volunteer safety notes for the
+  breath-holds are included.
+
 ## Clinical app shell contract (§19) — choices made while writing it
 
 - **Both WebSockets:** a light `/ws/ward` (summaries + alert pushes) for the overview and a heavy

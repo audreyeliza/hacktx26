@@ -412,7 +412,7 @@ Work in this order. Each milestone must pass its check before moving on. Commit 
    waveforms.
 9. **Record mode + quality v1.** Recordings saved as CSV with labels; `train_quality.py`
    trains, saves `data/quality_model.joblib`, prints a confusion matrix; server uses it.
-10. **Polish:** demo script works end to end from `POST /api/demo/reset`.
+10. **Polish:** demo script works end to end from `POST /api/demo/reset`. Runbook: `DEMO.md`.
     - **"Calibrate supine" control:** a dashboard button (and `POST /api/calibrate/supine`) records
       the mean gravity vector over a few seconds while the patient lies flat; posture is then
       computed relative to that calibration (rotation that maps the recorded vector to supine).
