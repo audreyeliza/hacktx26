@@ -347,6 +347,11 @@ records the reasoning and smaller choices.
   (`POST /api/calibrate/supine` → `{gravity, samples, …}`, read from Cursor's `web/patient.js`).
   Permission nurse/admin. Tilt only — see AGENTS.md M10 limitation.
 
+- **Fast warm-up:** first rate at 15 s (was 50 s) after a start/reset; worst error 0.15/min vs the
+  true rate over the data so far (normal, opioid_decline, demo, obstructive, two seeds). Only in
+  the first 60 s of a stream (`end < rate window`), so it never papers over a missing rate later
+  (e.g. during a central apnea or after motion). `demo.fast_warmup: false` restores 50 s.
+
 ## Clinical app shell contract (§19) — choices made while writing it
 
 - **Both WebSockets:** a light `/ws/ward` (summaries + alert pushes) for the overview and a heavy

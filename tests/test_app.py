@@ -100,5 +100,5 @@ def test_vitals_and_trend_over_websocket(test_cfg):
             assert vitals is not None and vitals["rr_fused"] is not None
             assert 13 <= vitals["rr_fused"] <= 17
             assert vitals["hr"] is not None
-            assert len(trend) >= 10 and trend[-1][1] == vitals["rr_fused"]  # first rate at 50 s (80 % of window)
+            assert len(trend) >= 3 and trend[-1][1] == vitals["rr_fused"]  # first (warm-up) rate at 15 s
         assert c.get("/api/state").json()["vitals"]["rr_fused"] is not None

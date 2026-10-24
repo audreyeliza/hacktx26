@@ -221,6 +221,10 @@ is far more than needed — stay small).
   - 0 clean sources: `None`.
 - M3 acceptance tolerance: ±1/min against truth when the rate is steady; **±2/min while the
   rate is changing** (window lag).
+- **Demo fast warm-up (M10, `demo.fast_warmup`, on by default):** in the first 60 s after a start
+  or reset, once ≥ 15 s of data exist, `rr_fused` is computed from the data so far, flagged
+  `warming_up`, with confidence capped at 0.5 — below the 0.6 alert gate, so it is display-only and
+  can never raise an alert. First rate ~15 s after a reset instead of ~50 s.
 
 **Signal quality** (`quality.py`), per 10 s window, output `clean | motion | sensor_off` plus a
 confidence 0–1:
@@ -595,7 +599,7 @@ For simulated patients: `kind: "simulator"`, `device_id: null`, `scenario` set, 
 }
 ```
 `flags` may contain `"single_source"`, `"sources_disagree"`, `"outlier:<source>"`,
-`"no_clean_source"`. `quality` ∈ `"clean" | "motion" | "sensor_off" | "unknown"`.
+`"no_clean_source"`, `"warming_up"` (provisional rate in the first minute; display it as such). `quality` ∈ `"clean" | "motion" | "sensor_off" | "unknown"`.
 `posture` ∈ `"supine" | "left" | "right" | "upright" | "unknown"`.
 
 **Event** (M5)

@@ -191,6 +191,25 @@ def fuse(estimates: dict[str, RateEstimate], cfg: SignalsCfg,
 
 # --------------------------------------------------------------------------- vitals
 
+def warmup_rates(block: np.ndarray, fs: float, cfg: Config,
+                 clean: dict[str, bool]) -> tuple[dict[str, RateEstimate], FusedRate] | None:
+    """Demo fast warm-up: in the first 60 s after a start/reset, a provisional rate from the
+    clean data so far (>= warmup_min_s). Flagged `warming_up` with confidence capped below the
+    alert gate, so it is display-only and can never raise an alert."""
+    d = cfg.demo
+    present = ~(np.isnan(block[CH["pressure"]]) & np.isnan(block[CH["therm"]]))
+    gaps = np.flatnonzero(~present)
+    tail = len(present) - (gaps[-1] + 1 if len(gaps) else 0)     # trailing samples with data
+    if tail < d.warmup_min_s * fs:
+        return None
+    rates = breath_rates(block[:, -tail:], fs, cfg.signals)
+    fused = fuse(rates, cfg.signals, clean)
+    if fused.bpm is None:
+        return None
+    return rates, FusedRate(fused.bpm, min(fused.confidence, d.warmup_conf_cap), fused.sources,
+                            fused.flags + ["warming_up"])
+
+
 def compute_vitals(buffers: RingBuffer, end: int, fs: float, cfg: Config) -> dict[str, Any]:
     return analyze(buffers, end, fs, cfg)[0]
 
@@ -216,6 +235,10 @@ def analyze(buffers: RingBuffer, end: int, fs: float, cfg: Config,
 
     rates = breath_rates(block, fs, s)
     fused = fuse(rates, s, clean)
+    if fused.bpm is None and cfg.demo.fast_warmup and end < n_rate:
+        warm = warmup_rates(block, fs, cfg, clean)
+        if warm is not None:
+            rates, fused = warm
     prelim = fuse(breath_rates(block[:, -n_prelim:], fs, s), s, clean)
     hr = heart_rate(block[CH["pulse"], -int(s.hr_window_s * fs):], fs, s)
 

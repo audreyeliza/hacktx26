@@ -66,7 +66,7 @@ def test_opioid_decline_is_tracked(cfg, decline_rows):
 
 
 def test_rates_none_before_window_fills(cfg, normal_rows):
-    first = normal_rows[0]
+    first = normal_rows[0]                       # 5 s: too little data even for the fast warm-up
     assert first[0] == cfg.signals.rate_interval_s
     assert first[3]["rr_fused"] is None and first[3]["flags"] == ["no_clean_source"]
 
@@ -151,3 +151,35 @@ def test_fuse_disagreement_below_gate(cfg):
 def test_fuse_none(cfg):
     f = fuse({"belt": RateEstimate(None), "accel": RateEstimate(None)}, cfg.signals)
     assert f.bpm is None and f.flags == ["no_clean_source"] and f.confidence == 0.0
+
+
+# ---------------------------------------------------------------- demo fast warm-up
+
+def test_fast_warmup_first_rate_at_15_s(cfg):
+    rows = run_scenario(cfg, "normal")
+    first = next((te, v) for te, _, _, v in rows if v["rr_fused"] is not None)
+    assert first[0] == cfg.demo.warmup_min_s
+    v = first[1]
+    assert v["flags"] == ["warming_up"] and v["rr_conf"] <= cfg.demo.warmup_conf_cap < cfg.alerts.gate_rr_conf
+    assert 13.5 <= v["rr_fused"] <= 16.5
+    late = [v for te, _, _, v in rows if te >= cfg.signals.rate_window_s]
+    assert all("warming_up" not in v["flags"] for v in late)
+
+
+def test_warmup_can_disable(cfg):
+    from tests.conftest import with_overrides
+    off = with_overrides(cfg, demo={"fast_warmup": False})
+    first = next(te for te, _, _, v in run_scenario(off, "normal") if v["rr_fused"] is not None)
+    assert first == 50.0
+
+
+def test_warmup_rate_never_alarms(cfg):
+    """Warm-up rates are display-only: confidence below the gate, so even 4/min raises nothing."""
+    from server.alerts import AlertEngine
+    eng = AlertEngine(cfg, "p")
+    v = {"rr_fused": 4.0, "rr_conf": cfg.demo.warmup_conf_cap, "quality": "clean", "quality_conf": 1.0,
+         "flags": ["warming_up"], "channels": {}, "posture": "supine"}
+    changes = []
+    for i in range(1, 10):
+        changes += eng.update(v, None, [], 5.0 * i)
+    assert all(a["tier"] == 0 for a in changes)

@@ -292,6 +292,13 @@ class PublicDemoCfg:
 
 
 @dataclass(frozen=True)
+class DemoCfg:
+    fast_warmup: bool
+    warmup_min_s: float
+    warmup_conf_cap: float
+
+
+@dataclass(frozen=True)
 class Config:
     contract: ContractCfg
     network: NetworkCfg
@@ -310,6 +317,7 @@ class Config:
     record: RecordCfg
     llm: LLMCfg
     public_demo: PublicDemoCfg
+    demo: DemoCfg
 
 
 def _build(cls: type, raw: dict[str, Any], where: str) -> Any:
