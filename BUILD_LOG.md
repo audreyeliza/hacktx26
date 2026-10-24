@@ -6,7 +6,7 @@ Honest record of which tool or agent produced each part of the project.
 
 - **Claude Code** (Anthropic, model Claude Opus 5.5) builds the server, simulator and processing
   (milestones 1–7).
-- **Cursor** (Grok, in the Cursor IDE) builds the clinical frontend against §19 with mock data, in parallel with the processing milestones. Firmware (milestone 8) is still later.
+- **Cursor** (Grok, in the Cursor IDE) builds the clinical frontend against §19, and the Pico firmware (milestone 8).
 - Both agents read `AGENTS.md` as the single source of truth. Agreed decisions are written into
   `AGENTS.md` itself (not only `NOTES.md`) so both agents follow the same rules.
 - The human team reviews each milestone's plan, makes the design calls and builds the hardware.
@@ -36,6 +36,7 @@ Honest record of which tool or agent produced each part of the project.
 | Sat night | Claude Code | quality | Floating (unconnected) ADC pins detected as `sensor_off` (band + jitter + high-frequency correlation); simulator faults for it. |
 | Sat night | Claude Code | M11 prep | Pi setup script, systemd unit, Mac push script (not run); PUBLIC_DEMO waiting for a spec. |
 | Sun early | Claude Code | PUBLIC_DEMO | `server/public_demo.py` and the 7 approved rules (+ Secure cookie, ward cap, `/api/public-config`), AGENTS.md §20, `deploy/PUBLIC_DEMO.md` + public systemd unit + Caddyfile (nothing deployed). |
+| Sat night | Cursor (Grok) | M8 | Pico firmware: `firmware/main.py` (50 Hz `ticks_diff` loop, UDP with USB-serial fallback, commands on UDP 5006 and stdin), `firmware/mma8452q.py`, `firmware/secrets_example.py`. Packets checked with `server.schema.parse_packet` against the rules in `tests/test_schema.py` (25 samples, `read_u16` bit pattern, 3-decimal accel, under 1400 bytes). |
 
 ## Prompts that worked
 
