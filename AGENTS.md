@@ -319,7 +319,8 @@ We are entering MLH "Best Use of Gemini API", so Gemini is the LLM provider.
   a "cached" flag. Timeout 20 s.
 - The dashboard AI panel shows a small "Powered by Gemini" label.
 - **Decided (M7):** model ids live in `config.yaml` (`llm.model`, `llm.handoff_model`; default
-  `gemini-3.8-flash` for both, per the Gemini models page in Oct 2026). `llm.provider: fake` gives a
+  `gemini-3.5-flash` first for demo reliability, then fallbacks `gemini-3.5-flash-lite`,
+  `gemini-3.8-flash` on overload/quota errors; all verified with `models.list()`). `llm.provider: fake` gives a
   deterministic offline provider (tests). The digest identifies the patient by bed only (no
   name) and states when data is simulated. If the API fails and nothing is cached for that
   patient and kind, the endpoint returns **503** `{"detail": "..."}`; the explain cache is per

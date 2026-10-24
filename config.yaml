@@ -244,9 +244,9 @@ record:
 
 llm:                          # AGENTS.md §10 — Google Gemini; key from the environment only
   provider: gemini            # gemini | fake (tests / offline development)
-  model: gemini-3.8-flash     # fast model for explanations and the overnight summary
-  handoff_model: gemini-3.8-flash   # optionally a stronger model for the SBAR note
-  fallback_models: [gemini-3.5-flash, gemini-3.5-flash-lite]  # tried in order on overload (5xx) / quota (429)
+  model: gemini-3.5-flash     # first for demo reliability (answered in ~1.4 s while 3.8 was overloaded)
+  handoff_model: gemini-3.5-flash   # optionally a stronger model for the SBAR note
+  fallback_models: [gemini-3.5-flash-lite, gemini-3.8-flash]  # tried in order on overload (5xx) / quota (429)
   attempts_per_model: 1       # fail fast and move to the next model
   api_key_env: GEMINI_API_KEY
   timeout_s: 15               # per request; the whole fallback chain is capped at total_timeout_s
