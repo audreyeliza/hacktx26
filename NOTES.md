@@ -315,6 +315,18 @@ records the reasoning and smaller choices.
   **Demo-day choice for the team:** keep `gemini-3.8-flash` first (best model, but ~15 s extra
   per summary while it is overloaded) or put `gemini-3.5-flash` first in `config.yaml`.
 
+## Floating pins (Sat night)
+
+- New channel status `floating` (treated like flat/clipped: channel masked, breathing channel →
+  `sensor_off`, after 60 s tier-1 "Check sensor: therm floating …"). Rules in AGENTS.md §7.
+- Simulator: new sensor faults `therm_floating` and `all_floating` (shared wander + shared jitter
+  around 11 400, range ≈ 10 400–12 300, std ≈ 285 — matching the hardware report). The
+  `sensor_off` scenario gained a 70 s phase of each; both are labelled `sensor_off` in every
+  window inside them, and all earlier tests (apneas never sensor_off, clean stays clean) pass.
+- **Uncertain:** the jitter spectrum of the real pins is a guess. If the real floating signal is
+  mostly slow (< 1.5 Hz) the single-pin rule would miss it (the multi-pin correlation rule needs
+  some fast jitter too). Recording 1–2 min of disconnected pins with record mode would settle it.
+
 ## Clinical app shell contract (§19) — choices made while writing it
 
 - **Both WebSockets:** a light `/ws/ward` (summaries + alert pushes) for the overview and a heavy

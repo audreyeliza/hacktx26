@@ -5,7 +5,8 @@ Low-confidence or non-clean windows can never raise alerts above tier 0 (design 
 
 Note on "flat": an apnea makes the airflow (and for central apnea the effort) channel nearly
 flat *physiologically*. So "sensor_off" here means dead-flat (below the ADC noise an attached
-sensor shows) or clipped at a rail, never merely "no breathing signal".
+sensor shows), clipped at a rail, or **floating** (an unconnected pin: mid-range reading with
+random jitter, moving together with the other floating pins), never merely "no breathing signal".
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from server.config import Config
 from server.ingest import CH
 
 ADC_CHANNELS = ("pressure", "therm", "pulse")
+OFF_STATUSES = ("flat", "clipped", "floating")
 BREATHING_CHANNELS = ("pressure", "therm")   # an off breathing channel makes the window sensor_off
 POSTURES = {"supine": (2, 1.0), "left": (0, -1.0), "right": (0, 1.0), "upright": (1, 1.0)}
 
@@ -29,7 +31,7 @@ class SegmentQuality:
     label: str                                # clean | motion | sensor_off | unknown
     confidence: float
     motion: float | None                      # max 2 s RMS of high-passed accel magnitude (g)
-    channels: dict[str, str] = field(default_factory=dict)  # ok | flat | clipped | missing
+    channels: dict[str, str] = field(default_factory=dict)  # ok | flat | clipped | floating | missing
     reasons: list[str] = field(default_factory=list)
 
 
@@ -69,12 +71,42 @@ def channel_status(x: np.ndarray, cfg: Config) -> str:
     return "ok"
 
 
+def floating_channels(block: np.ndarray, fs: float, cfg: Config, candidates: list[str]) -> set[str]:
+    """Unconnected ADC pins: median inside the floating band with real jitter, and either
+    correlated with another such pin above float_hf_hz (floating pins move together) or, alone,
+    mostly high-frequency jitter."""
+    q = cfg.quality
+    lo, hi = q.float_band_counts
+    sos = _highpass_sos(q.float_hf_hz, fs, cfg.signals.filter_order)
+    hf: dict[str, np.ndarray] = {}
+    for c in candidates:
+        x = block[CH[c]]
+        if np.isnan(x).any() or len(x) <= 3 * (2 * len(sos) + 1):
+            continue
+        if not (lo <= float(np.median(x)) <= hi) or float(x.std()) < q.float_min_std_counts:
+            continue
+        hf[c] = sosfiltfilt(sos, x - x.mean())
+    out: set[str] = set()
+    names = list(hf)
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            if np.std(hf[a]) > 0 and np.std(hf[b]) > 0 and np.corrcoef(hf[a], hf[b])[0, 1] >= q.float_corr:
+                out |= {a, b}
+    for c in names:
+        x = block[CH[c]]
+        if c not in out and float(np.var(hf[c])) >= q.float_min_hf_share * float(np.var(x - x.mean())):
+            out.add(c)
+    return out
+
+
 def assess_segment(block: np.ndarray, fs: float, cfg: Config) -> SegmentQuality:
     """v0 rules for one segment. block: (channels, n) raw samples."""
     q = cfg.quality
     channels = {c: channel_status(block[CH[c]], cfg) for c in ADC_CHANNELS}
+    for c in floating_channels(block, fs, cfg, [c for c, st in channels.items() if st == "ok"]):
+        channels[c] = "floating"
     motion = motion_energy(block[[CH["ax"], CH["ay"], CH["az"]]], fs, cfg)
-    off = [c for c in BREATHING_CHANNELS if channels[c] in ("flat", "clipped")]
+    off = [c for c in BREATHING_CHANNELS if channels[c] in OFF_STATUSES]
     if all(channels[c] == "missing" for c in BREATHING_CHANNELS) or motion is None:
         return SegmentQuality("unknown", 0.0, motion, channels, ["not enough data"])
     if off:
@@ -104,7 +136,7 @@ def segment_masks(block: np.ndarray, fs: float, cfg: Config) -> tuple[np.ndarray
         if seg.label == "motion":
             out[:, s:s + n_seg] = np.nan
         for c, status in seg.channels.items():
-            if status in ("flat", "clipped"):
+            if status in OFF_STATUSES:
                 out[CH[c], s:s + n_seg] = np.nan
     return out, results
 

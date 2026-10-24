@@ -228,6 +228,14 @@ confidence 0–1:
 - **v0 (rules, build first):** sensor_off if a channel is flat (std below threshold) or clipped
   near 0/65535; motion if motion energy above threshold; confidence lowered when `rr_belt` and
   `rr_accel` disagree by more than 3 breaths/min.
+  - **Floating pins (decided, from real hardware):** an unconnected analog pin reads ~10 000–12 800
+    with random jitter, and all floating pins move together. A channel is `floating` (→
+    sensor_off) when its median is in that band with jitter (std ≥ 150 counts) and either it is
+    correlated (r ≥ 0.6) with another such channel **above 1.5 Hz** (breathing has no energy
+    there, so connected belt + thermistor, which correlate through breathing, are not flagged),
+    or, alone, most of its variance is above 1.5 Hz. A quiet attached sensor (apnea) never
+    qualifies. All values in `config.yaml` (`quality.float_*`); check against a recording of
+    disconnected pins (record mode, label `sensor_off`).
 - **v1 (ML):** RandomForest (scikit-learn) trained on recorded, labeled windows. Features:
   per-channel std, range, clipping fraction, dominant frequency and its power share, belt–accel
   correlation, belt–airflow correlation, motion energy mean/max, rate disagreement. Fall back to

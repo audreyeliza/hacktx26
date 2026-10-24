@@ -76,6 +76,11 @@ class SimulatorCfg:
     therm_lag_s: float
     therm_tau_s: float
     therm_ambient: float
+    float_dc: float
+    float_wander: float
+    float_wander_tau_s: float
+    float_jitter: float
+    float_indep: float
     pulse_dc: float
     pulse_amp: float
     pulse_noise: float
@@ -137,6 +142,11 @@ class QualityCfg:
     disagree_conf: float
     sensor_off_conf: float
     posture_min_g: float
+    float_band_counts: tuple[float, float]
+    float_min_std_counts: float
+    float_hf_hz: float
+    float_corr: float
+    float_min_hf_share: float
     model_path: str
 
 

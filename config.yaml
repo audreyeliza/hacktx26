@@ -55,6 +55,11 @@ simulator:
   therm_lag_s: 0.35        # airflow lags effort
   therm_tau_s: 0.45        # thermistor first-order response
   therm_ambient: 36500     # reading when the thermistor is off the face
+  float_dc: 11400          # unconnected ADC pin (real hardware: ~10 000-12 800, jittery)
+  float_wander: 500        # shared slow wander (all floating pins move together)
+  float_wander_tau_s: 1.5
+  float_jitter: 250        # shared fast jitter
+  float_indep: 30          # small per-pin noise
   pulse_dc: 28000
   pulse_amp: 3200
   pulse_noise: 80
@@ -112,6 +117,14 @@ quality:                      # v0 rules (AGENTS.md section 7); per 10 s segment
   disagree_conf: 0.5          # clean, but belt and accel rates disagree by > signals.agree_bpm
   sensor_off_conf: 0.9
   posture_min_g: 0.6          # gravity component needed to name a posture
+  # Floating (unconnected) ADC pin: reads ~10 000–12 800 with random jitter, and all floating pins
+  # move together. Correlation is measured above float_hf_hz, where breathing has no energy (a
+  # connected belt and thermistor are correlated through breathing itself).
+  float_band_counts: [10000, 12800]
+  float_min_std_counts: 150   # floating jitter; an attached sensor during an apnea is far quieter
+  float_hf_hz: 1.5
+  float_corr: 0.6             # two in-band channels this correlated above float_hf_hz = floating
+  float_min_hf_share: 0.5     # single in-band channel: mostly high-frequency jitter = floating
   model_path: data/quality_model.joblib   # v1 (milestone 9); v0 rules if missing
 
 events:                       # AGENTS.md section 7 (Events); amplitudes relative to baseline

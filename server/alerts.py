@@ -325,7 +325,7 @@ class AlertEngine:
     def _rule_sensor(self, v: dict[str, Any], t: float) -> None:
         held = self._held("sensor_off", v.get("quality") == "sensor_off", t)
         if held >= self.a.sensor_off_s:
-            what = ", ".join(f"{c} {s}" for c, s in (v.get("channels") or {}).items() if s in ("flat", "clipped"))
+            what = ", ".join(f"{c} {s}" for c, s in (v.get("channels") or {}).items() if s in ("flat", "clipped", "floating"))
             self._raise("sensor_check", 1, f"Check sensor: {what or 'signal lost'} for "
                         f"{held + self.cfg.signals.rate_interval_s:.0f} s", t)
         elif v.get("quality") != "sensor_off":

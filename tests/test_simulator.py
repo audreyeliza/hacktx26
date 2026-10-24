@@ -83,11 +83,17 @@ def test_sensor_off_segments(cfg):
     sim = Simulator("sensor_off", cfg)
     ch = collect(sim)
     segs = [q for q in sim.labels()["quality"] if q["label"] == "sensor_off"]
-    assert len(segs) == 3
-    therm_flat, pressure_rail, therm_low = (window(sim, s["start_s"] + 2, s["end_s"]) for s in segs)
+    assert len(segs) == 5
+    therm_flat, pressure_rail, therm_low, therm_float, all_float = (
+        window(sim, s["start_s"] + 2, s["end_s"]) for s in segs)
     assert ch["therm"][therm_flat].std() < 50
     assert np.all(ch["pressure"][pressure_rail] == 65535)
     assert np.all(ch["therm"][therm_low] == 0)
+    for c in ("pressure", "therm", "pulse"):                   # unconnected pins: mid-range, jittery
+        x = ch[c][all_float]
+        assert 9500 <= np.median(x) <= 13300 and x.std() > 150
+    assert np.corrcoef(ch["pressure"][all_float], ch["therm"][all_float])[0, 1] > 0.9   # move together
+    assert 9500 <= np.median(ch["therm"][therm_float]) <= 13300
 
 
 def test_motion_bursts_corrupt_signals(cfg):

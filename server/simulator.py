@@ -41,7 +41,9 @@ POSTURE_GRAVITY: dict[str, tuple[float, float, float]] = {
 # Direction of breathing-induced tilt in device axes; non-degenerate for every posture.
 BREATH_TILT = np.array([0.4, -1.0, 0.3])
 
-SENSOR_MODES = ("therm_flat", "therm_rail_low", "pressure_rail_high")
+SENSOR_MODES = ("therm_flat", "therm_rail_low", "pressure_rail_high", "therm_floating", "all_floating")
+# Which ADC channels float (unconnected pin) in each floating mode.
+FLOATING = {"therm_floating": ("therm",), "all_floating": ("pressure", "therm", "pulse")}
 
 
 @dataclass(frozen=True)
@@ -117,6 +119,8 @@ def build_scenario(name: str, rng: np.random.Generator, residual: float,
             Phase(75, sensor="therm_flat"), _normal(60),
             Phase(75, sensor="pressure_rail_high"), _normal(60),
             Phase(45, sensor="therm_rail_low"), _normal(60),
+            Phase(70, sensor="therm_floating"), _normal(60),
+            Phase(70, sensor="all_floating"), _normal(60),
         ]
     if name == "demo":
         # normal -> motion -> opioid decline (to 5/min so tier 3 is reachable) -> recovery
@@ -156,6 +160,7 @@ class _GenState:
     hr_phase: float = 0.0
     env_zi: dict[str, np.ndarray] = field(default_factory=dict)
     therm_zi: np.ndarray | None = None
+    float_zi: np.ndarray | None = None
 
 
 def adc_u16(values: np.ndarray) -> list[int]:
@@ -331,6 +336,16 @@ class Simulator:
         therm = np.where(mode == SENSOR_MODES.index("therm_flat"), sc.therm_ambient + 8 * rnd(n), therm)
         therm = np.where(mode == SENSOR_MODES.index("therm_rail_low"), 0.0, therm)
         pressure = np.where(mode == SENSOR_MODES.index("pressure_rail_high"), 70000.0, pressure)
+        floating = {m: mode == SENSOR_MODES.index(m) for m in FLOATING}
+        if any(f.any() for f in floating.values()):
+            # unconnected pins: one shared wander + shared jitter (they move together), tiny per-pin noise
+            wander, st.float_zi = self._smooth(rnd(n), sc.float_wander_tau_s, st.float_zi)
+            common = sc.float_dc + sc.float_wander * wander * 3 + sc.float_jitter * rnd(n)
+            chans = {"pressure": pressure, "therm": therm, "pulse": pulse}
+            for m, sel in floating.items():
+                for c in FLOATING[m]:
+                    chans[c] = np.where(sel, common + sc.float_indep * rnd(n), chans[c])
+            pressure, therm, pulse = chans["pressure"], chans["therm"], chans["pulse"]
 
         max_g = self.cfg.contract.accel_max_g
         packet = {

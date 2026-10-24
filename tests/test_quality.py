@@ -141,3 +141,53 @@ def test_posture_from_gravity(cfg, gravity, expected):
 def test_posture_follows_roll_in_motion_scenario(cfg, motion_rows):
     postures = {v["posture"] for tl, _, v in motion_rows if tl == "clean"}
     assert {"supine", "left"} <= postures
+
+
+# ---------------------------------------------------------------- floating (unconnected) pins
+
+def _floating(n, rng, dc=11400.0):
+    """Common-mode jitter like an unconnected RP2 ADC pin (shared by every floating pin)."""
+    from scipy.signal import lfilter
+    wander = lfilter([0.02], [1, -0.98], rng.normal(0, 1, n)) * 1500
+    return dc + wander + rng.normal(0, 250, n)
+
+
+def test_all_floating_pins_detected(cfg):
+    rng = np.random.default_rng(5)
+    block = synthetic_block(500)
+    common = _floating(500, rng)
+    for c in ("pressure", "therm", "pulse"):
+        block[CH[c]] = common + rng.normal(0, 30, 500)
+    seg = assess_segment(block, 50.0, cfg)
+    assert seg.label == "sensor_off"
+    assert {seg.channels[c] for c in ("pressure", "therm", "pulse")} == {"floating"}
+
+
+def test_single_floating_pin_detected(cfg):
+    rng = np.random.default_rng(6)
+    block = synthetic_block(500)
+    block[CH["therm"]] = _floating(500, rng)
+    seg = assess_segment(block, 50.0, cfg)
+    assert seg.label == "sensor_off" and seg.channels["therm"] == "floating" and seg.channels["pressure"] == "ok"
+
+
+def test_connected_sensors_in_the_floating_band_are_not_floating(cfg):
+    """A real belt/thermistor whose DC happens to sit in 10 000-12 800 is correlated with each
+    other through breathing — that must not look like floating pins."""
+    block = synthetic_block(500)
+    t = np.arange(500) / 50.0
+    rng = np.random.default_rng(7)
+    block[CH["pressure"]] = 11000 + 1500 * np.sin(2 * np.pi * 0.25 * t) + rng.normal(0, 60, 500)
+    block[CH["therm"]] = 11800 - 900 * np.sin(2 * np.pi * 0.25 * t - 0.5) + rng.normal(0, 25, 500)
+    seg = assess_segment(block, 50.0, cfg)
+    assert seg.label == "clean" and seg.channels["pressure"] == "ok" and seg.channels["therm"] == "ok"
+
+
+def test_apnea_in_the_floating_band_is_not_floating(cfg):
+    """During an apnea an attached sensor is quiet; quiet + in-band must not become sensor_off."""
+    block = synthetic_block(500)
+    rng = np.random.default_rng(8)
+    block[CH["pressure"]] = 11000 + rng.normal(0, 40, 500) + 60 * np.sin(np.arange(500) / 50.0)
+    block[CH["therm"]] = 11800 + rng.normal(0, 25, 500) + 30 * np.sin(np.arange(500) / 50.0)
+    seg = assess_segment(block, 50.0, cfg)
+    assert seg.label == "clean", seg.channels

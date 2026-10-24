@@ -16,7 +16,7 @@ from scipy.signal import butter, detrend, find_peaks, sosfiltfilt
 
 from server.config import Config, SignalsCfg
 from server.ingest import CH, RingBuffer
-from server.quality import posture, segment_masks
+from server.quality import OFF_STATUSES, posture, segment_masks
 
 RESP_SOURCES = ("belt", "accel", "airflow")
 
@@ -210,7 +210,7 @@ def analyze(buffers: RingBuffer, end: int, fs: float, cfg: Config) -> tuple[dict
     raw = buffers.window(end, n_rate)
     block, segments = segment_masks(raw, fs, cfg)
     current = segments[-1]
-    off = {c for c, st in current.channels.items() if st in ("flat", "clipped")}
+    off = {c for c, st in current.channels.items() if st in OFF_STATUSES}
     clean = {"belt": "pressure" not in off, "airflow": "therm" not in off, "accel": True}
 
     rates = breath_rates(block, fs, s)
