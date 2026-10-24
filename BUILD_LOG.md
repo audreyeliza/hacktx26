@@ -27,6 +27,7 @@ Honest record of which tool or agent produced each part of the project.
 | Sat evening | Cursor (Grok) | frontend | Clinical shell in `web/` against §19: `mock.js` (`USE_MOCK`), login, ward census, patient detail, add-patient, admin Device & data. Six scripted beds with live rates and waveforms. Did not edit `server/`. |
 | Sat evening | Claude Code | M6 | `server/alerts.py` (tiers, persistence, baseline, trend, apnea + cluster, sensor check, cooldown, latching, escalation; naive comparison monitor), `server/store.py` (SQLite), bedside LED/buzzer command over UDP or serial, alerts API + WebSocket messages, tests incl. demo acceptance. Committed only backend files: Cursor's agent had uncommitted §19 frontend work in `web/`, left untouched. |
 | Sat night | Claude Code | follow-ups | `awaiting_ack` alert status; 1 s apnea watch + 1 s provisional lag (tier 3 at 21–22 s into an apnea, measured); demo apneas 32 s / 26 s; §19 Alert shape updated. |
+| Sat night | Claude Code | M6.5 | Multi-patient backend for §19: `server/auth.py`, `server/patients.py` (ward, per-patient runtimes, routing), `server/record.py`, Stream/Ingest split, all §19 endpoints + `/ws/ward` + `/ws/patients/{id}` + page routes + legacy aliases, ward backfill; `tests/test_ward.py` checks every documented shape. Read Cursor's `web/mock.js` (read-only) to match its real-API path. |
 
 ## Prompts that worked
 

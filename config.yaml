@@ -178,3 +178,53 @@ bedside:
 
 store:
   path: data/breathwatch.db
+
+auth:                         # AGENTS.md §19 — DEMO-GRADE login
+  enabled: true
+  cookie_name: bw_session
+  session_ttl_h: 12
+  accounts:                   # DEMO ONLY — never real credentials
+    - {username: nurse, display_name: Demo Nurse, role: nurse, password: demo}
+    - {username: doctor, display_name: Demo Physician, role: physician, password: demo}
+    - {username: admin, display_name: Demo Admin, role: admin, password: demo}
+
+ward:
+  live_device_id: patch-01
+  random_offset: true         # simulated patients start at a random point in their scenario
+  ward_push_s: 2.0            # /ws/ward summary push at most this often
+  backfill_s: 150             # on ward start/reset, simulated beds get this much history at once
+  seed:                       # created when the patients table is empty; names are fictional
+    - bed: "1"
+      name: Morgan Ellis
+      device: {kind: simulator, scenario: normal}
+      risk_factors: {opioids: true, supplemental_o2: false, osa: none, age_over_65: false}
+      notes: Post-op day 2, oral opioids
+    - bed: "2"
+      name: Riley Chen
+      device: {kind: simulator, scenario: motion}
+      risk_factors: {opioids: true, supplemental_o2: false, osa: none, age_over_65: true}
+      notes: Restless overnight
+    - bed: "3"
+      name: Sam Okafor
+      device: {kind: simulator, scenario: obstructive}
+      risk_factors: {opioids: true, supplemental_o2: true, osa: suspected, age_over_65: false}
+      notes: Snoring reported, STOP-BANG 5
+    - bed: "4"
+      name: Jordan Avery
+      device: {kind: live, device_id: patch-01}
+      risk_factors: {opioids: true, supplemental_o2: true, osa: suspected, age_over_65: false}
+      notes: Post-op day 1, PCA morphine (live wearable)
+    - bed: "5"
+      name: Casey Moreno
+      device: {kind: simulator, scenario: opioid_decline}
+      risk_factors: {opioids: true, supplemental_o2: true, osa: none, age_over_65: true}
+      notes: PCA dose increased at 22:00
+    - bed: "6"
+      name: Alex Novak
+      device: {kind: simulator, scenario: central}
+      risk_factors: {opioids: true, supplemental_o2: false, osa: known, age_over_65: true}
+      notes: Home CPAP not available
+
+record:
+  dir: data/recordings
+  labels: [clean, motion, sensor_off, slow_breathing, breath_hold_effort, breath_hold_no_effort]

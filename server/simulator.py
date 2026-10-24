@@ -174,7 +174,7 @@ class Simulator:
     """Generates section 4 packets for a scenario, one batch at a time."""
 
     def __init__(self, scenario: str, cfg: Config, seed: int | None = None, loop: bool = False,
-                 device: str | None = None) -> None:
+                 device: str | None = None, start_s: float = 0.0) -> None:
         self.scenario = scenario
         self.cfg = cfg
         self.sc = cfg.simulator
@@ -190,7 +190,8 @@ class Simulator:
         self.starts = np.concatenate([[0.0], np.cumsum([p.duration_s for p in self.phases])])
         self.duration_s = float(self.starts[-1])
         self.total_samples = int(round(self.duration_s * self.fs))
-        self.n = 0
+        # start part-way into the scenario (whole packets), e.g. so a simulated ward is not in lockstep
+        self.n = int(start_s * self.fs) // self.batch * self.batch % max(self.total_samples, 1)
         self.seq = 0
         self._st = _GenState()
         self._tab = self._phase_table()

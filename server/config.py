@@ -216,6 +216,37 @@ class StoreCfg:
 
 
 @dataclass(frozen=True)
+class AccountCfg:
+    username: str
+    display_name: str
+    role: str
+    password: str
+
+
+@dataclass(frozen=True)
+class AuthCfg:
+    enabled: bool
+    cookie_name: str
+    session_ttl_h: float
+    accounts: list[AccountCfg]
+
+
+@dataclass(frozen=True)
+class WardCfg:
+    live_device_id: str
+    random_offset: bool
+    ward_push_s: float
+    backfill_s: float
+    seed: list[dict[str, Any]]   # PatientCreate records, validated by server.patients
+
+
+@dataclass(frozen=True)
+class RecordCfg:
+    dir: str
+    labels: list[str]
+
+
+@dataclass(frozen=True)
 class Config:
     contract: ContractCfg
     network: NetworkCfg
@@ -229,6 +260,9 @@ class Config:
     naive: NaiveCfg
     bedside: BedsideCfg
     store: StoreCfg
+    auth: AuthCfg
+    ward: WardCfg
+    record: RecordCfg
 
 
 def _build(cls: type, raw: dict[str, Any], where: str) -> Any:
@@ -242,9 +276,16 @@ def _build(cls: type, raw: dict[str, Any], where: str) -> Any:
     for name in names:
         hint = hints[name]
         value = raw[name]
+        origin = getattr(hint, "__origin__", None)
         if dataclasses.is_dataclass(hint):
             kwargs[name] = _build(hint, value, f"{where}.{name}" if where else name)
-        elif getattr(hint, "__origin__", None) is tuple:
+        elif origin is list:
+            item = hint.__args__[0]
+            if dataclasses.is_dataclass(item):
+                kwargs[name] = [_build(item, v, f"{where}.{name}[{i}]") for i, v in enumerate(value)]
+            else:
+                kwargs[name] = list(value)
+        elif origin is tuple:
             kwargs[name] = tuple(float(v) for v in value)
         elif hint is float:
             kwargs[name] = float(value)

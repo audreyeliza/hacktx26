@@ -41,6 +41,13 @@ CREATE TABLE IF NOT EXISTS alerts (
 );
 CREATE INDEX IF NOT EXISTS alerts_patient_t ON alerts (patient_id, raised_t);
 
+CREATE TABLE IF NOT EXISTS patients (
+    id TEXT PRIMARY KEY,
+    num INTEGER NOT NULL,
+    status TEXT, bed TEXT,
+    data TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS llm_cache (
     id INTEGER PRIMARY KEY,
     patient_id TEXT, kind TEXT, key TEXT, created_t REAL,
@@ -130,8 +137,51 @@ class Store:
         row = self.db.execute("SELECT data FROM alerts WHERE id = ?", (alert_id,)).fetchone()
         return json.loads(row["data"]) if row else None
 
+    # ---- patients
+    def next_patient_id(self) -> str:
+        row = self.db.execute("SELECT COALESCE(MAX(num), 0) + 1 AS n FROM patients").fetchone()
+        return f"p{row['n']}"
+
+    def save_patient(self, patient: dict[str, Any]) -> None:
+        num = int(patient["id"].lstrip("p"))
+        self.db.execute(
+            "INSERT INTO patients (id, num, status, bed, data) VALUES (?, ?, ?, ?, ?)"
+            " ON CONFLICT(id) DO UPDATE SET status = excluded.status, bed = excluded.bed, data = excluded.data",
+            (patient["id"], num, patient["status"], patient["bed"], json.dumps(patient)))
+        self.db.commit()
+
+    def patient(self, patient_id: str) -> dict[str, Any] | None:
+        row = self.db.execute("SELECT data FROM patients WHERE id = ?", (patient_id,)).fetchone()
+        return json.loads(row["data"]) if row else None
+
+    def patients(self, status: str | None = None) -> list[dict[str, Any]]:
+        rows = self.db.execute(
+            "SELECT data FROM patients WHERE (? IS NULL OR status = ?) ORDER BY num",
+            (status, status)).fetchall()
+        return [json.loads(r["data"]) for r in rows]
+
+    def delete_all_patients(self) -> None:
+        for table in ("patients", "vitals", "events", "alerts", "llm_cache"):
+            self.db.execute(f"DELETE FROM {table}")
+        self.db.commit()
+
+    # ---- LLM cache (milestone 7)
+    def cache_summary(self, patient_id: str, kind: str, key: str, summary: dict[str, Any]) -> None:
+        self.db.execute("INSERT INTO llm_cache (patient_id, kind, key, created_t, data) VALUES (?, ?, ?, ?, ?)",
+                        (patient_id, kind, key, summary["created_t"], json.dumps(summary)))
+        self.db.commit()
+
+    def cached_summary(self, patient_id: str, kind: str, key: str | None = None) -> dict[str, Any] | None:
+        """Latest cached summary for this patient and kind (and key, e.g. the alert id, if given)."""
+        row = self.db.execute(
+            "SELECT data FROM llm_cache WHERE patient_id = ? AND kind = ? AND (? IS NULL OR key = ?)"
+            " ORDER BY created_t DESC, id DESC LIMIT 1", (patient_id, kind, key, key)).fetchone()
+        return json.loads(row["data"]) if row else None
+
     # ---- housekeeping
     def clear_patient(self, patient_id: str) -> None:
+        """Delete a patient's runtime history (vitals, events, alerts); keeps the record and
+        cached summaries (the demo must still have something to show offline)."""
         for table in ("vitals", "events", "alerts"):
             self.db.execute(f"DELETE FROM {table} WHERE patient_id = ?", (patient_id,))
         self.db.commit()

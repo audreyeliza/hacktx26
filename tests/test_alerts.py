@@ -300,19 +300,20 @@ def test_store_round_trip(tmp_path):
 def test_alerts_api_and_ack(test_cfg):
     app = create_app(test_cfg, source="udp")
     with TestClient(app) as c:
-        state = app.state.bw
-        eng = state.pipeline.alerts
+        rt = app.state.bw.ward.live_runtime()
+        eng = rt.pipeline.alerts
         eng.start_t = 0.0
         eng._raise("apnea", 3, "Apnea 25 s (obstructive, supine)", 100.0)
         for a in eng.take_changes():
-            state._log_alert(a)
+            app.state.bw.ward.log_alert(rt.id, a)
         aid = eng.active["apnea"]
         s = c.get("/api/state").json()
         assert s["tier"] == 3 and s["bedside"] == {"cmd": "status", "color": "red", "buzzer": True}
         assert c.get("/api/alerts?status=active").json()["alerts"][0]["id"] == aid
         r = c.post(f"/api/alerts/{aid}/ack", json={"note": "checked"})
         assert r.status_code == 200 and r.json()["status"] == "acknowledged"
-        assert r.json()["acknowledged_by"]["role"] == "nurse" and r.json()["ack_note"] == "checked"
+        assert r.json()["acknowledged_by"]["role"] == "admin"  # auth disabled in tests: requests act as admin
+        assert r.json()["ack_note"] == "checked"
         assert c.get("/api/state").json()["bedside"]["buzzer"] is False
         assert c.post("/api/alerts/99999/ack").status_code == 404
 

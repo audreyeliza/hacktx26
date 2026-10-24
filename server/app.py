@@ -1,28 +1,34 @@
-"""FastAPI app: REST API, live WebSocket, static dashboard.
+"""FastAPI app: the clinical app shell API (AGENTS.md §19), WebSockets, pages.
 
 Run:  python -m server.app            (prints the dashboard URL for phones)
   or  uvicorn server.app:app --host 0.0.0.0 --port 8000
+
+The single-patient endpoints of §11 (/api/state, /api/events, /api/alerts, /ws/live, …) remain
+as deprecated aliases for the patient wearing the live device (§19.8).
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import math
 import time
-from collections import deque
 from contextlib import asynccontextmanager
+from dataclasses import asdict
 from typing import Any
 
 import numpy as np
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from server.auth import ADMIN, CAN_EDIT_PATIENTS, Sessions
 from server.config import ROOT, Config, load_config
 from server.ingest import CH, Ingest, list_serial_ports, local_ips
-from server.pipeline import LIVE_PATIENT_ID, Pipeline, public_event
+from server.patients import PatientCreate, PatientRuntime, PatientUpdate, Ward, WardError
+from server.record import Recorder
 from server.simulator import SCENARIO_NAMES
 from server.store import Store
 
@@ -31,7 +37,8 @@ WEB = ROOT / "web"
 
 # Display name -> raw channel for the live waveforms.
 WAVES = {"effort": "pressure", "airflow": "therm", "pulse": "pulse"}
-TIER_COLORS = ("green", "yellow", "orange", "red")  # bedside LED (AGENTS.md §4)
+PAGES = {"/": "index.html", "/login": "login.html", "/patients/new": "patient-new.html",
+         "/admin/device": "admin.html"}
 
 
 class State:
@@ -41,124 +48,78 @@ class State:
         self.cfg = cfg
         self.store = Store(cfg.store.path)
         self.ingest = Ingest(cfg)
+        self.ward = Ward(cfg, self.store, self.ingest)
+        self.sessions = Sessions(cfg.auth)
+        self.recorder = Recorder(cfg)
+        self.ingest.on_packet = self.recorder.on_packet
         self.started = time.time()
-        self.step = int(cfg.events.watch_interval_s * self.ingest.fs)  # samples between ticks (1 s)
-        self.vitals: dict[str, Any] | None = None
-        self.vitals_seq = 0
-        # (vitals_seq, sample time, rr_fused) for the trend chart
-        self.trend: deque[tuple[int, float, float | None]] = deque(
-            maxlen=int(cfg.live.trend_window_s / cfg.signals.rate_interval_s))
-        self.pipeline = Pipeline(cfg, self.ingest.fs, LIVE_PATIENT_ID, self.store)
-        self.event_seq = 0
-        self.event_log: deque[tuple[int, dict[str, Any]]] = deque(maxlen=cfg.events.recent_max)
-        self.alert_seq = 0
-        self.alert_log: deque[tuple[int, dict[str, Any]]] = deque(maxlen=cfg.events.recent_max)
-        self._next_idx = self.step
-        self._generation = self.ingest.generation
 
-    def process_pending(self, max_windows: int = 50) -> int:
-        """Tick the pipeline at every 1 s boundary of sample time the buffers have passed
-        (apnea watch every second, vitals every 5 s)."""
+    def network(self) -> dict[str, Any]:
+        return {"ips": local_ips(), "http_port": self.cfg.network.http_port, "udp_port": self.cfg.network.udp_port}
+
+    def admin_device(self) -> dict[str, Any]:
         ing = self.ingest
-        if ing.generation != self._generation:
-            self._generation = ing.generation
-            self._next_idx = self.step
-            self.vitals = None
-            self.trend.clear()
-            self.pipeline = Pipeline(self.cfg, ing.fs, LIVE_PATIENT_ID, self.store)
-            self.event_log.clear()
-            self.alert_log.clear()
-        total = ing.buffers.total
-        if total - self._next_idx > ing.buffers.capacity:  # fell far behind: skip ahead
-            self._next_idx = (total // self.step) * self.step
-        done = 0
-        while total >= self._next_idx and done < max_windows:
-            res = self.pipeline.tick(ing.buffers, self._next_idx, ing.sample_time)
-            for e in res.events:
-                self.event_seq += 1
-                self.event_log.append((self.event_seq, public_event(e)))
-            for a in res.alerts:
-                self._log_alert(a)
-            if res.vitals is not None:
-                v = res.vitals
-                self.vitals_seq += 1
-                self.vitals = v
-                self.trend.append((self.vitals_seq, v["t"], v["rr_fused"]))
-            self._next_idx += self.step
-            done += 1
-        return done
-
-    def trend_since(self, seq: int) -> list[tuple[float, float | None]]:
-        return [(t, rr) for s, t, rr in self.trend if s > seq]
-
-    def _log_alert(self, alert: dict[str, Any]) -> None:
-        self.alert_seq += 1
-        self.alert_log.append((self.alert_seq, dict(alert)))
-        if alert["tier"] >= 1:
-            log.info("alert %s tier %d %s: %s", alert["id"], alert["tier"], alert["status"], alert["reason"])
-
-    def alerts_since(self, seq: int) -> list[dict[str, Any]]:
-        return [a for s, a in self.alert_log if s > seq]
-
-    def acknowledge(self, alert_id: int, note: str | None) -> dict[str, Any] | None:
-        t = self.ingest.sample_time(self.ingest.buffers.total) or time.time()
-        alert = self.pipeline.alerts.acknowledge(alert_id, None, note, t)
-        if alert is not None:
-            self._log_alert(alert)
-            self.pipeline.alerts.take_changes()
-            return alert
-        return self.store.alert(alert_id)  # from an earlier run: already ended
-
-    def bedside_command(self) -> dict[str, Any]:
-        tier, _ = self.pipeline.alerts.tier()
-        return {"cmd": "status", "color": TIER_COLORS[tier], "buzzer": self.pipeline.alerts.buzzer()}
-
-    def events_since(self, seq: int) -> list[dict[str, Any]]:
-        return [e for s, e in self.event_log if s > seq]
-
-    def recent_events(self, limit: int = 100) -> list[dict[str, Any]]:
-        return [e for _, e in self.event_log][-limit:][::-1]
-
-    def snapshot(self) -> dict[str, Any]:
+        live = self.ward.live_runtime()
         return {
-            "patient": "Bed 4",
-            "ingest": self.ingest.snapshot(),
-            "vitals": self.vitals,
-            "recent_events": self.recent_events(10),
-            "ongoing_event": self.pipeline.ongoing,
-            "tier": self.pipeline.alerts.tier()[0],
-            "tier_reason": self.pipeline.alerts.tier()[1],
-            "baseline": self.pipeline.alerts.baseline(),
-            "active_alerts": self.pipeline.alerts.active_alerts(),
-            "monitors": self.pipeline.monitors(),
-            "bedside": self.bedside_command(),
-            "network": {"ips": local_ips(), "http_port": self.cfg.network.http_port,
-                        "udp_port": self.cfg.network.udp_port},
+            "source": ing.source_spec,
+            "source_status": ing.source.status if ing.source else "stopped",
+            "link_ok": ing.link_ok(),
+            "stats": {"packets": ing.packets, "invalid": ing.invalid, "unassigned_packets": ing.unassigned_packets,
+                      "nonjson_lines": ing.nonjson_lines, "last_arrival": ing.last_arrival,
+                      "last_device": ing.last_device,
+                      "pico_addr": list(ing.pico_addr) if ing.pico_addr else None,
+                      **({k: v for k, v in asdict(live.stream.stats).items()
+                          if k in ("gaps", "missing_packets", "dropped_late", "restarts")} if live else {})},
+            "assigned_patient_id": live.id if live else None,
+            "unassigned_packets": ing.unassigned_packets,
+            "network": self.network(),
+            "recording": self.recorder.status(),
         }
 
-    async def reset(self) -> None:
-        self.ingest.reset()
-        self.store.clear_patient(LIVE_PATIENT_ID)
-        self.process_pending()
+    def legacy_snapshot(self, rt: PatientRuntime) -> dict[str, Any]:
+        """The pre-§19 single-patient /api/state shape, for the live patient."""
+        ing = self.ingest
+        tier, reason = rt.tier()
+        return {
+            "patient": f"Bed {rt.patient['bed']}",
+            "ingest": {"source": ing.source_spec, "source_status": ing.source.status if ing.source else "stopped",
+                       "link_ok": rt.stream.link_ok(), "samples": rt.stream.buffers.total,
+                       "sample_time": rt.stream.sample_time(rt.stream.buffers.total),
+                       "stats": asdict(rt.stream.stats)},
+            "vitals": rt.vitals, "recent_events": rt.recent_events(10), "ongoing_event": rt.pipeline.ongoing,
+            "tier": tier, "tier_reason": reason, "baseline": rt.pipeline.alerts.baseline(),
+            "active_alerts": rt.pipeline.alerts.active_alerts(), "monitors": rt.pipeline.monitors(),
+            "bedside": rt.bedside_command(), "network": self.network(),
+        }
+
+
+async def processing_loop(state: State) -> None:
+    while True:
+        state.ward.process_all()
+        await asyncio.sleep(0.1)
 
 
 async def bedside_loop(state: State) -> None:
-    """Keep the Pico's LED/buzzer in sync (it blinks blue after 10 s without a command)."""
+    """Keep the Pico's LED/buzzer in sync with the live patient (it blinks blue after 10 s)."""
     while True:
         try:
-            state.ingest.send_command(state.bedside_command())
+            rt = state.ward.live_runtime()
+            if rt is not None:
+                state.ingest.send_command(rt.bedside_command())
         except Exception:
             log.exception("bedside command failed")
         await asyncio.sleep(state.cfg.bedside.command_interval_s)
 
 
-async def processing_loop(state: State) -> None:
-    while True:
-        try:
-            state.process_pending()
-        except Exception:  # keep the server alive; one bad window must not stop monitoring
-            log.exception("processing failed")
-        await asyncio.sleep(0.1)
+# --------------------------------------------------------------------------- request bodies
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class DemoLoginRequest(BaseModel):
+    role: str
 
 
 class AckRequest(BaseModel):
@@ -171,73 +132,131 @@ class SourceRequest(BaseModel):
     loop: bool = False
 
 
-def _clean(values: np.ndarray, digits: int | None) -> list[float | int | None]:
-    """NaN -> null for JSON; ADC channels as ints, accel rounded."""
-    if digits is None:
-        return [None if math.isnan(v) else int(v) for v in values.tolist()]
-    return [None if math.isnan(v) else round(v, digits) for v in values.tolist()]
+class RecordRequest(BaseModel):
+    label: str
 
 
-def wave_message(state: State, start: int, end: int) -> dict[str, Any]:
-    """Decimated raw waveforms for samples [start, end), aligned to global sample index."""
-    dec = state.cfg.live.wave_decimate
+class ResetRequest(BaseModel):
+    reseed_ward: bool = False
+
+
+# --------------------------------------------------------------------------- sockets
+
+def _clean(values: np.ndarray) -> list[int | None]:
+    """NaN -> null for JSON; ADC counts as ints."""
+    return [None if math.isnan(v) else int(v) for v in values.tolist()]
+
+
+def wave_message(cfg: Config, rt: PatientRuntime, start: int, end: int) -> dict[str, Any]:
+    """Decimated raw waveforms for samples [start, end), aligned to the global sample index."""
+    dec = cfg.live.wave_decimate
     first = start + (-start) % dec
     n = end - first
-    block = state.ingest.buffers.window(end, n) if n > 0 else np.empty((len(CH), 0))
+    block = rt.stream.buffers.window(end, n) if n > 0 else np.empty((len(CH), 0))
     block = block[:, ::dec]
-    msg: dict[str, Any] = {"type": "wave", "start": first, "step": dec, "fs": state.ingest.fs,
-                           "end": end, "t_end": state.ingest.sample_time(end)}
+    msg: dict[str, Any] = {"type": "wave", "start": first, "step": dec, "fs": rt.fs, "end": end,
+                           "t_end": rt.stream.sample_time(end)}
     for name, ch in WAVES.items():
-        msg[name] = _clean(block[CH[ch]], None)
+        msg[name] = _clean(block[CH[ch]])
     return msg
 
 
-async def live_socket(ws: WebSocket, state: State) -> None:
+async def patient_socket(ws: WebSocket, state: State, patient_id: str, legacy: bool = False) -> None:
+    """WS /ws/patients/{id} (§19.6), or the legacy /ws/live shape for the live patient."""
     cfg = state.cfg.live
+    ward = state.ward
+    rt = ward.runtimes.get(patient_id)
     await ws.accept()
-    await ws.send_json({"type": "hello", "window_s": cfg.wave_window_s,
-                        "trend_window_s": cfg.trend_window_s, "trend": state.trend_since(0),
-                        "scenarios": list(SCENARIO_NAMES), "state": state.snapshot()})
-    last_vitals = state.vitals_seq
-    last_event = state.event_seq
-    last_alert = state.alert_seq
-    last_end: int | None = None
-    generation = state.ingest.generation
-    next_status = 0.0
-    window_n = int(cfg.wave_window_s * state.ingest.fs)
+    if rt is None:
+        await ws.close(code=4404)
+        return
+
+    def hello() -> dict[str, Any]:
+        base = {"type": "hello", "window_s": cfg.wave_window_s, "trend_window_s": cfg.trend_window_s,
+                "trend": rt.trend_since(0)}
+        if legacy:
+            return {**base, "scenarios": list(SCENARIO_NAMES), "state": state.legacy_snapshot(rt)}
+        return {**base, "patient": rt.patient, "state": rt.state()}
+
+    def status() -> dict[str, Any]:
+        if legacy:
+            return {"type": "status", **state.legacy_snapshot(rt)}
+        tier, _ = rt.tier()
+        return {"type": "status", "device": rt.device_status(), "tier": tier, "monitors": rt.pipeline.monitors()}
+
+    await ws.send_json(hello())
+    last_vitals, last_event, last_alert = rt.vitals_seq, rt.event_seq, ward.alert_seq
+    generation, last_end, next_status = rt.generation, None, 0.0
+    window_n = int(cfg.wave_window_s * rt.fs)
     try:
         while True:
-            ing = state.ingest
-            if ing.generation != generation:
-                generation, last_end = ing.generation, None
+            current = ward.runtimes.get(patient_id)
+            if current is None:                       # discharged
+                if not legacy:
+                    await ws.send_json({"type": "discharged", "patient": ward.get(patient_id)})
+                await ws.close(code=1000)
+                return
+            if current is not rt or current.generation != generation:
+                rt, generation = current, current.generation
+                last_vitals = last_event = 0
+                last_end = None
                 await ws.send_json({"type": "reset"})
-            if state.vitals_seq != last_vitals:
-                if state.vitals_seq < last_vitals:
-                    last_vitals = 0
-                await ws.send_json({"type": "vitals", "vitals": state.vitals,
-                                    "trend": state.trend_since(last_vitals)})
-                last_vitals = state.vitals_seq
-            if state.event_seq != last_event:
-                for e in state.events_since(last_event if state.event_seq > last_event else 0):
+            if rt.vitals_seq != last_vitals:
+                await ws.send_json({"type": "vitals", "vitals": rt.vitals, "trend": rt.trend_since(last_vitals)})
+                last_vitals = rt.vitals_seq
+            if rt.event_seq != last_event:
+                for e in rt.events_since(last_event):
                     await ws.send_json({"type": "event", "event": e})
-                last_event = state.event_seq
-            if state.alert_seq != last_alert:
-                for a in state.alerts_since(last_alert if state.alert_seq > last_alert else 0):
+                last_event = rt.event_seq
+            if ward.alert_seq != last_alert:
+                for _, a in ward.alerts_since(last_alert, patient_id):
                     await ws.send_json({"type": "alert", "alert": a})
-                last_alert = state.alert_seq
-            end = ing.buffers.total
+                last_alert = ward.alert_seq
+            end = rt.stream.buffers.total
             start = max(end - window_n if last_end is None else max(last_end, end - window_n), 0)
             if end > start:
-                await ws.send_json(wave_message(state, start, end))
+                await ws.send_json(wave_message(state.cfg, rt, start, end))
                 last_end = end
             now = time.monotonic()
             if now >= next_status:
                 next_status = now + cfg.status_interval_s
-                await ws.send_json({"type": "status", **state.snapshot()})
+                await ws.send_json(status())
             await asyncio.sleep(1.0 / cfg.push_hz)
     except (WebSocketDisconnect, RuntimeError):
         pass
 
+
+async def ward_socket(ws: WebSocket, state: State) -> None:
+    """WS /ws/ward (§19.6): ward summaries (at most every ward_push_s) + immediate alert pushes."""
+    ward = state.ward
+    await ws.accept()
+
+    def listing() -> tuple[dict[str, Any], str]:
+        data = ward.listing()
+        key = json.dumps(data["patients"], sort_keys=True, default=str)
+        return data, key
+
+    data, last_key = listing()
+    await ws.send_json({"type": "ward", **data})
+    last_alert, last_push = ward.alert_seq, time.monotonic()
+    try:
+        while True:
+            if ward.alert_seq != last_alert:
+                for pid, a in ward.alerts_since(last_alert):
+                    await ws.send_json({"type": "alert", "patient_id": pid, "alert": a})
+                last_alert = ward.alert_seq
+            if time.monotonic() - last_push >= state.cfg.ward.ward_push_s:
+                data, key = listing()
+                if key != last_key:
+                    await ws.send_json({"type": "ward", **data})
+                    last_key = key
+                last_push = time.monotonic()
+            await asyncio.sleep(0.25)
+    except (WebSocketDisconnect, RuntimeError):
+        pass
+
+
+# --------------------------------------------------------------------------- app
 
 def create_app(cfg: Config | None = None, source: str | None = None) -> FastAPI:
     cfg = cfg or load_config()
@@ -248,6 +267,7 @@ def create_app(cfg: Config | None = None, source: str | None = None) -> FastAPI:
             logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
         state = State(cfg)
         app.state.bw = state
+        await state.ward.start()
         try:
             await state.ingest.set_source(source or cfg.ingest.default_source)
         except ValueError as exc:
@@ -259,66 +279,226 @@ def create_app(cfg: Config | None = None, source: str | None = None) -> FastAPI:
         yield
         for task in tasks:
             task.cancel()
+        state.recorder.stop()
         await state.ingest.stop()
+        await state.ward.stop()
         state.store.close()
 
     app = FastAPI(title="BreathWatch", lifespan=lifespan)
     app.mount("/static", StaticFiles(directory=WEB), name="static")
 
     @app.middleware("http")
-    async def no_cache_static(request: Request, call_next):
-        # Browsers revalidate (cheap 304s) so dashboard edits show up on a plain reload.
+    async def no_cache_pages(request: Request, call_next):
+        # Browsers revalidate (cheap 304s) so frontend edits show up on a plain reload.
         response = await call_next(request)
-        if request.url.path == "/" or request.url.path.startswith("/static/"):
+        if not request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-cache"
         return response
+
+    @app.exception_handler(WardError)
+    async def ward_error(request: Request, exc: WardError) -> JSONResponse:
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status)
 
     def st() -> State:
         return app.state.bw
 
-    @app.get("/")
-    async def index() -> FileResponse:
-        return FileResponse(WEB / "index.html")
+    # ---- auth dependencies (§19.4)
+    def signed_in(request: Request) -> dict[str, str]:
+        return st().sessions.require(request)
 
-    @app.get("/api/state")
-    async def get_state() -> dict[str, Any]:
-        return st().snapshot()
+    def can_edit(request: Request) -> dict[str, str]:
+        return st().sessions.require(request, CAN_EDIT_PATIENTS)
+
+    def admin_only(request: Request) -> dict[str, str]:
+        return st().sessions.require(request, ADMIN)
+
+    # ---- pages
+    def page(name: str) -> FileResponse:
+        path = WEB / name
+        if not path.exists():
+            raise HTTPException(404, f"page {name} not built yet")
+        return FileResponse(path)
+
+    for route, name in PAGES.items():
+        app.add_api_route(route, (lambda n=name: page(n)), methods=["GET"], include_in_schema=False)
+
+    @app.get("/patients/{patient_id}", include_in_schema=False)
+    async def patient_page(patient_id: str) -> FileResponse:
+        return page("patient.html")
+
+    # ---- auth
+    def _set_cookie(response: Response, user: dict[str, str]) -> None:
+        token = st().sessions.create(user)
+        response.set_cookie(cfg.auth.cookie_name, token, httponly=True, samesite="lax", path="/",
+                            max_age=int(cfg.auth.session_ttl_h * 3600))
+
+    @app.post("/api/auth/login")
+    async def login(req: LoginRequest, response: Response) -> dict[str, Any]:
+        user = st().sessions.check_password(req.username, req.password)
+        if user is None:
+            raise HTTPException(401, "wrong username or password")
+        _set_cookie(response, user)
+        return {"user": user}
+
+    @app.post("/api/auth/demo")
+    async def demo_login(req: DemoLoginRequest, response: Response) -> dict[str, Any]:
+        user = st().sessions.account_for_role(req.role)
+        if user is None:
+            raise HTTPException(400, f"no demo account with role {req.role!r}")
+        _set_cookie(response, user)
+        return {"user": user}
+
+    @app.post("/api/auth/logout", status_code=204)
+    async def logout(request: Request) -> Response:
+        st().sessions.delete(request.cookies.get(cfg.auth.cookie_name))
+        response = Response(status_code=204)
+        response.delete_cookie(cfg.auth.cookie_name, path="/")
+        return response
+
+    @app.get("/api/auth/me")
+    async def me(user: dict = Depends(signed_in)) -> dict[str, Any]:
+        return {"user": user}
+
+    @app.get("/api/auth/demo-accounts")
+    async def demo_accounts() -> list[dict[str, str]]:
+        return st().sessions.demo_accounts()
+
+    # ---- ward and patients
+    @app.get("/api/patients")
+    async def list_patients(status: str = "admitted", user: dict = Depends(signed_in)) -> dict[str, Any]:
+        return st().ward.listing(status)
+
+    @app.post("/api/patients", status_code=201)
+    async def create_patient(body: PatientCreate, user: dict = Depends(can_edit)) -> dict[str, Any]:
+        return await st().ward.create(body)
+
+    @app.get("/api/patients/{patient_id}")
+    async def get_patient(patient_id: str, user: dict = Depends(signed_in)) -> dict[str, Any]:
+        return st().ward.get(patient_id)
+
+    @app.patch("/api/patients/{patient_id}")
+    async def update_patient(patient_id: str, body: PatientUpdate, user: dict = Depends(can_edit)) -> dict[str, Any]:
+        return await st().ward.update(patient_id, body)
+
+    @app.post("/api/patients/{patient_id}/discharge")
+    async def discharge_patient(patient_id: str, user: dict = Depends(can_edit)) -> dict[str, Any]:
+        return await st().ward.discharge(patient_id)
+
+    @app.get("/api/patients/{patient_id}/state")
+    async def patient_state(patient_id: str, user: dict = Depends(signed_in)) -> dict[str, Any]:
+        return st().ward.state_for(patient_id)
+
+    @app.get("/api/patients/{patient_id}/vitals")
+    async def patient_vitals(patient_id: str, since_t: float | None = None, limit: int = 720,
+                             user: dict = Depends(signed_in)) -> dict[str, Any]:
+        st().ward.get(patient_id)
+        return {"vitals": st().store.vitals(patient_id, since_t, min(limit, 5000))}
+
+    @app.get("/api/patients/{patient_id}/events")
+    async def patient_events(patient_id: str, since_t: float | None = None, limit: int = 100,
+                             user: dict = Depends(signed_in)) -> dict[str, Any]:
+        st().ward.get(patient_id)
+        return {"events": st().store.events(patient_id, since_t, min(limit, 1000))}
+
+    @app.get("/api/patients/{patient_id}/alerts")
+    async def patient_alerts(patient_id: str, status: str = "all", since_t: float | None = None,
+                             limit: int = 100, user: dict = Depends(signed_in)) -> dict[str, Any]:
+        st().ward.get(patient_id)
+        return {"alerts": st().store.alerts(patient_id, status, since_t, min(limit, 1000))}
+
+    def _ack(patient_id: str, alert_id: int, user: dict | None, note: str | None) -> dict[str, Any]:
+        ward = st().ward
+        ward.get(patient_id)
+        rt = ward.runtimes.get(patient_id)
+        if rt is not None and alert_id in rt.pipeline.alerts.alerts:
+            return rt.acknowledge(alert_id, user, note)  # type: ignore[return-value]
+        stored = st().store.alert(alert_id)
+        if stored is None or stored["patient_id"] != patient_id:
+            raise HTTPException(404, f"no alert {alert_id} for patient {patient_id}")
+        return stored  # from an earlier run: already ended
+
+    @app.post("/api/patients/{patient_id}/alerts/{alert_id}/ack")
+    async def ack_alert(patient_id: str, alert_id: int, req: AckRequest | None = None,
+                        user: dict = Depends(signed_in)) -> dict[str, Any]:
+        return _ack(patient_id, alert_id, user, req.note if req else None)
+
+    # ---- admin: device & data
+    @app.get("/api/admin/device")
+    async def admin_device(user: dict = Depends(admin_only)) -> dict[str, Any]:
+        return st().admin_device()
 
     @app.post("/api/source")
-    async def post_source(req: SourceRequest) -> dict[str, Any]:
+    async def post_source(req: SourceRequest, user: dict = Depends(admin_only)) -> dict[str, Any]:
         try:
             await st().ingest.set_source(req.source, req.speed, req.loop)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
-        return st().snapshot()
-
-    @app.get("/api/events")
-    async def get_events(limit: int = 100) -> dict[str, Any]:
-        return {"events": st().recent_events(limit)}
-
-    @app.get("/api/alerts")
-    async def get_alerts(status: str | None = None, limit: int = 100) -> dict[str, Any]:
-        return {"alerts": st().store.alerts(LIVE_PATIENT_ID, status=status, limit=limit)}
-
-    @app.post("/api/alerts/{alert_id}/ack")
-    async def ack_alert(alert_id: int, req: AckRequest | None = None) -> dict[str, Any]:
-        alert = st().acknowledge(alert_id, req.note if req else None)
-        if alert is None:
-            raise HTTPException(404, f"no alert {alert_id}")
-        return alert
+        return st().admin_device()
 
     @app.get("/api/serial/ports")
-    async def serial_ports() -> list[dict[str, Any]]:
+    async def serial_ports(user: dict = Depends(admin_only)) -> list[dict[str, Any]]:
         return list_serial_ports(cfg.ingest.serial_pico_vid)
 
+    @app.post("/api/record/start")
+    async def record_start(req: RecordRequest, user: dict = Depends(admin_only)) -> dict[str, Any]:
+        try:
+            return {"recording": st().recorder.start(req.label)}
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/record/stop")
+    async def record_stop(user: dict = Depends(admin_only)) -> dict[str, Any]:
+        return {"recording": None, "file": st().recorder.stop()}
+
     @app.post("/api/demo/reset")
-    async def demo_reset() -> dict[str, Any]:
-        await st().reset()
-        return st().snapshot()
+    async def demo_reset(req: ResetRequest | None = None, user: dict = Depends(admin_only)) -> dict[str, Any]:
+        await st().ward.reset(reseed=bool(req and req.reseed_ward))
+        return st().ward.listing()
+
+    # ---- sockets
+    @app.websocket("/ws/ward")
+    async def ws_ward(ws: WebSocket) -> None:
+        if await st().sessions.require_ws(ws) is not None:
+            await ward_socket(ws, st())
+
+    @app.websocket("/ws/patients/{patient_id}")
+    async def ws_patient(ws: WebSocket, patient_id: str) -> None:
+        if await st().sessions.require_ws(ws) is not None:
+            await patient_socket(ws, st(), patient_id)
+
+    # ---- deprecated single-patient aliases (§19.8): the patient wearing the live device
+    def live() -> PatientRuntime:
+        rt = st().ward.live_runtime()
+        if rt is None:
+            raise HTTPException(404, f"no admitted patient has device {cfg.ward.live_device_id}")
+        return rt
+
+    @app.get("/api/state")
+    async def legacy_state(user: dict = Depends(signed_in)) -> dict[str, Any]:
+        return st().legacy_snapshot(live())
+
+    @app.get("/api/events")
+    async def legacy_events(limit: int = 100, user: dict = Depends(signed_in)) -> dict[str, Any]:
+        return {"events": st().store.events(live().id, limit=limit)}
+
+    @app.get("/api/alerts")
+    async def legacy_alerts(status: str | None = None, limit: int = 100, user: dict = Depends(signed_in)) -> dict[str, Any]:
+        return {"alerts": st().store.alerts(live().id, status=status, limit=limit)}
+
+    @app.post("/api/alerts/{alert_id}/ack")
+    async def legacy_ack(alert_id: int, req: AckRequest | None = None, user: dict = Depends(signed_in)) -> dict[str, Any]:
+        return _ack(live().id, alert_id, user, req.note if req else None)
 
     @app.websocket("/ws/live")
     async def ws_live(ws: WebSocket) -> None:
-        await live_socket(ws, st())
+        if await st().sessions.require_ws(ws) is None:
+            return
+        rt = st().ward.live_runtime()
+        if rt is None:
+            await ws.accept()
+            await ws.close(code=4404)
+            return
+        await patient_socket(ws, st(), rt.id, legacy=True)
 
     return app
 

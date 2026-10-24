@@ -32,7 +32,8 @@ def test_state_and_source_switching(test_cfg):
         s = c.get("/api/state").json()
         assert s["patient"] == "Bed 4" and s["ingest"]["source"] == "udp"
         r = c.post("/api/source", json={"source": "simulator:normal", "speed": 20})
-        assert r.status_code == 200 and r.json()["ingest"]["source"] == "simulator:normal"
+        assert r.status_code == 200 and r.json()["source"] == "simulator:normal"   # §19.5 admin device body
+        assert r.json()["assigned_patient_id"] == "p4"
         assert c.post("/api/source", json={"source": "nonsense"}).status_code == 400
         assert c.get("/api/state").json()["ingest"]["source"] == "simulator:normal"
         assert isinstance(c.get("/api/serial/ports").json(), list)
@@ -75,7 +76,9 @@ def test_reset_clears_buffers(test_cfg):
     app = create_app(test_cfg, source="simulator:normal")
     with TestClient(app) as c:
         time.sleep(0.6)
-        assert c.post("/api/demo/reset").json()["ingest"]["stats"]["packets"] <= 2
+        body = c.post("/api/demo/reset").json()
+        assert len(body["patients"]) == 6                 # §19.5: reset returns the ward listing
+        assert c.get("/api/state").json()["ingest"]["stats"]["packets"] <= 2
 
 
 def test_vitals_and_trend_over_websocket(test_cfg):

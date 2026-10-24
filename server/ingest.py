@@ -19,6 +19,7 @@ import socket
 import threading
 import time
 from dataclasses import asdict, dataclass
+from collections.abc import Callable
 from typing import Any, Protocol
 
 import numpy as np
@@ -106,8 +107,8 @@ class Source(Protocol):
     async def stop(self) -> None: ...
 
 
-class Ingest:
-    """Owns the active source, the timeline and the ring buffers."""
+class Stream:
+    """One device's timeline and ring buffers (one per patient from milestone 6.5)."""
 
     def __init__(self, cfg: Config) -> None:
         self.cfg = cfg
@@ -117,11 +118,7 @@ class Ingest:
         self.anchor: float | None = None  # epoch seconds of sample index 0
         self.expected_seq: int | None = None
         self.generation = 0               # bumps on every reset so consumers can resync
-        self.source: Source | None = None
-        self.source_spec = "none"
-        self.pico_addr: tuple[str, int] | None = None  # for bedside commands (milestone 6)
 
-    # ---- timeline
     def sample_time(self, idx: int | float) -> float | None:
         return None if self.anchor is None else self.anchor + idx / self.fs
 
@@ -132,6 +129,10 @@ class Ingest:
         self.expected_seq = None
         self.generation += 1
 
+    def link_ok(self, now: float | None = None) -> bool:
+        last = self.stats.last_arrival
+        return last is not None and (now or time.time()) - last < self.cfg.ingest.link_timeout_s
+
     def _reanchor(self, n: int, arrival: float) -> None:
         """Start a new stream segment; insert a gap for the time that passed with no data."""
         if self.anchor is None:
@@ -141,17 +142,6 @@ class Ingest:
         gap = int(round((arrival - n / self.fs - self.sample_time(now_idx)) * self.fs))
         if gap > 0:
             self.buffers.append_nan(gap)
-
-    def handle_raw(self, data: bytes | str, addr: Any = None, arrival: float | None = None) -> bool:
-        try:
-            pkt = parse_packet(data, self.cfg.contract)
-        except PacketError as exc:
-            self.stats.invalid += 1
-            if self.stats.invalid <= 5 or self.stats.invalid % 100 == 0:
-                log.warning("invalid packet #%d from %s: %s", self.stats.invalid, addr, exc)
-            return False
-        self.handle_packet(pkt, addr, arrival, validated=True)
-        return True
 
     def handle_packet(self, pkt: dict[str, Any], addr: Any = None, arrival: float | None = None,
                       validated: bool = False) -> None:
@@ -175,8 +165,8 @@ class Ingest:
             missing = seq - self.expected_seq
             st.gaps += 1
             st.missing_packets += missing
-            log.warning("seq gap: expected %d, got %d (%d packets / %.1f s missing)",
-                        self.expected_seq, seq, missing, missing * n / self.fs)
+            log.warning("seq gap (%s): expected %d, got %d (%d packets / %.1f s missing)",
+                        pkt["device"], self.expected_seq, seq, missing, missing * n / self.fs)
             self.buffers.append_nan(missing * n)
         elif seq < self.expected_seq:
             if self.expected_seq - seq <= self.cfg.ingest.restart_seq_back:
@@ -194,8 +184,105 @@ class Ingest:
         st.last_t0_ms = pkt["t0_ms"]
         st.device = pkt["device"]
         st.addr = None if addr is None else str(addr)
+
+
+Router = Callable[[str], "Stream | None"]
+PacketHook = Callable[[dict[str, Any]], None]
+
+
+class Ingest:
+    """The live input: owns the active source (UDP / serial / simulator-as-live) and hands each
+    packet to a Stream.
+
+    Without a router (single-patient use and most tests) every packet goes to `self.default`, and
+    `buffers`, `stats`, `sample_time`, … refer to it. With a router (the ward, M6.5) packets go
+    to the stream of the patient assigned that device id; unassigned devices are counted and
+    dropped.
+    """
+
+    def __init__(self, cfg: Config) -> None:
+        self.cfg = cfg
+        self.fs = float(cfg.contract.sample_rate_hz)
+        self.default = Stream(cfg)
+        self.router: Router | None = None
+        self.on_packet: PacketHook | None = None     # record mode
+        self.on_source_change: Callable[[], None] | None = None
+        self.source: Source | None = None
+        self.source_spec = "none"
+        self.pico_addr: tuple[str, int] | None = None  # for bedside commands (milestone 6)
+        self.invalid = 0
+        self.unassigned_packets = 0
+        self.nonjson_lines = 0
+        self.packets = 0
+        self.last_arrival: float | None = None
+        self.last_device: str | None = None
+
+    # ---- single-stream conveniences (the default stream)
+    @property
+    def buffers(self) -> RingBuffer:
+        return self.default.buffers
+
+    @property
+    def stats(self) -> StreamStats:
+        return self.default.stats
+
+    @property
+    def generation(self) -> int:
+        return self.default.generation
+
+    def sample_time(self, idx: int | float) -> float | None:
+        return self.default.sample_time(idx)
+
+    def reset(self) -> None:
+        self.default.reset()
+        self.invalid = self.unassigned_packets = self.nonjson_lines = self.packets = 0
+        self.last_arrival = None
+
+    # ---- packets
+    def _count_invalid(self) -> None:
+        self.invalid += 1
+        if self.router is None:
+            self.default.stats.invalid += 1
+
+    def count_nonjson(self) -> None:
+        self.nonjson_lines += 1
+        if self.router is None:
+            self.default.stats.nonjson_lines += 1
+
+    def handle_raw(self, data: bytes | str, addr: Any = None, arrival: float | None = None) -> bool:
+        try:
+            pkt = parse_packet(data, self.cfg.contract)
+        except PacketError as exc:
+            self._count_invalid()
+            if self.invalid <= 5 or self.invalid % 100 == 0:
+                log.warning("invalid packet #%d from %s: %s", self.invalid, addr, exc)
+            return False
+        self.handle_packet(pkt, addr, arrival, validated=True)
+        return True
+
+    def handle_packet(self, pkt: dict[str, Any], addr: Any = None, arrival: float | None = None,
+                      validated: bool = False) -> None:
+        if not validated:
+            errors = validate_packet(pkt, self.cfg.contract)
+            if errors:
+                self._count_invalid()
+                log.warning("invalid packet from %s: %s", addr, "; ".join(errors))
+                return
+        arrival = time.time() if arrival is None else arrival
+        self.packets += 1
+        self.last_arrival = arrival
+        self.last_device = pkt["device"]
         if isinstance(addr, tuple):
             self.pico_addr = addr
+        if self.on_packet is not None:
+            self.on_packet(pkt)
+        stream = self.default if self.router is None else self.router(pkt["device"])
+        if stream is None:
+            self.unassigned_packets += 1
+            if self.unassigned_packets in (1, 100) or self.unassigned_packets % 1000 == 0:
+                log.warning("packets from unassigned device %r (%d so far)", pkt["device"], self.unassigned_packets)
+            return
+        stream.handle_packet(pkt, addr, arrival, validated=True)
 
     # ---- sources
     async def set_source(self, spec: str, speed: float | None = None, loop: bool = False) -> None:
@@ -203,6 +290,8 @@ class Ingest:
         new = self._make_source(spec, speed, loop)  # raises ValueError before stopping the old one
         await self.stop()
         self.reset()
+        if self.on_source_change is not None:
+            self.on_source_change()
         self.source, self.source_spec = new, spec
         await new.start()
         log.info("source: %s (%s)", spec, new.status)
@@ -235,7 +324,7 @@ class Ingest:
         return False
 
     def link_ok(self, now: float | None = None) -> bool:
-        last = self.stats.last_arrival
+        last = self.last_arrival
         return last is not None and (now or time.time()) - last < self.cfg.ingest.link_timeout_s
 
     def snapshot(self) -> dict[str, Any]:
@@ -251,11 +340,21 @@ class Ingest:
 
 # --------------------------------------------------------------------------- sources
 
+class PacketTarget(Protocol):
+    cfg: Config
+
+    def handle_packet(self, pkt: dict[str, Any], addr: Any = None, arrival: float | None = None,
+                      validated: bool = False) -> None: ...
+
+
 class SimulatorSource:
-    def __init__(self, ingest: Ingest, scenario: str, speed: float, loop: bool) -> None:
-        self.ingest = ingest
+    """In-process simulator feeding an Ingest (simulator-as-live) or a patient's own Stream."""
+
+    def __init__(self, target: PacketTarget, scenario: str, speed: float, loop: bool,
+                 device: str | None = None, seed: int | None = None, start_s: float = 0.0) -> None:
+        self.target = target
         self.name = f"simulator:{scenario}"
-        self.sim = Simulator(scenario, ingest.cfg, loop=loop)
+        self.sim = Simulator(scenario, target.cfg, seed=seed, loop=loop, device=device, start_s=start_s)
         self.speed = speed
         self.status = "starting"
         self._stop = asyncio.Event()
@@ -268,7 +367,7 @@ class SimulatorSource:
 
     async def _run(self) -> None:
         def sink(pkt: dict[str, Any]) -> None:
-            self.ingest.handle_packet(pkt, addr="simulator", validated=True)
+            self.target.handle_packet(pkt, addr="simulator", validated=True)
         await stream(self.sim, sink, self.speed, self._stop)
         if not self._stop.is_set():
             self.status = "finished"
@@ -430,9 +529,8 @@ class SerialSource:
 
     def _on_line(self, line: bytes, port: str, arrival: float) -> None:
         if not line.startswith(b"{"):
-            st = self.ingest.stats
-            st.nonjson_lines += 1
-            if st.nonjson_lines <= 5:
+            self.ingest.count_nonjson()
+            if self.ingest.nonjson_lines <= 5:
                 log.info("serial: ignoring non-packet line: %r", line[:120])
             return
         self.ingest.handle_raw(line, port, arrival)

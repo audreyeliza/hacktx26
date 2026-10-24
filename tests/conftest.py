@@ -18,5 +18,12 @@ def with_overrides(cfg: Config, **sections: dict) -> Config:
 
 @pytest.fixture
 def test_cfg(cfg) -> Config:
-    """Config safe for tests: ephemeral UDP port so nothing clashes with a running server."""
-    return with_overrides(cfg, network={"udp_port": 0}, store={"path": ":memory:"})
+    """Config safe for tests: ephemeral UDP port, in-memory database, login off."""
+    return with_overrides(cfg, network={"udp_port": 0}, store={"path": ":memory:"},
+                          auth={"enabled": False}, ward={"backfill_s": 0})
+
+
+@pytest.fixture
+def auth_cfg(test_cfg) -> Config:
+    """test_cfg with login enforced (§19 auth tests)."""
+    return with_overrides(test_cfg, auth={"enabled": True})

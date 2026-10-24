@@ -805,7 +805,10 @@ ward:
 ```
 Default seed mix: bed 1 `normal`, bed 2 `motion`, bed 3 `obstructive` (OSA suspected),
 bed 4 live, bed 5 `opioid_decline` (opioids), bed 6 `central`. Simulated patients start at a
-random offset into their scenario so the ward does not move in lockstep.
+random offset into their scenario so the ward does not move in lockstep, and on ward start /
+demo reset each simulated bed is **backfilled** with `ward.backfill_s` (150 s) of history so rates,
+baseline and trend show immediately (newly admitted patients get no backfill). Each simulated
+patient's packets use device id `sim-<patient id>`; the live wearable keeps `patch-01`.
 
 ### 19.8 Transition from the single-patient API
 

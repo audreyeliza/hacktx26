@@ -235,6 +235,39 @@ records the reasoning and smaller choices.
   MicroPython script that imports `machine`) and fails; run `pytest -q tests`, or add
   `testpaths = tests` to a pytest config (not done: outside server/ and tests/).
 
+## Smaller choices (M6.5)
+
+- **Structure:** `Ingest` (the live source) now hands packets to a per-patient `Stream` (buffers +
+  seq timeline). Without a router everything goes to a default stream (single-patient tests);
+  the `Ward` sets a router that maps the packet's `device` to the admitted patient assigned that
+  device id. Each `PatientRuntime` = Stream + Pipeline (+ its own in-process simulator for
+  simulated beds). One processing loop ticks every runtime every 100 ms.
+- **Auth (demo-grade):** in-memory sessions (`secrets.token_urlsafe`), cookie `bw_session`
+  (HttpOnly, SameSite=Lax), passwords compared with `compare_digest`. `auth.enabled: false`
+  makes every request the first admin (tests use this; dedicated tests run with auth on).
+  WebSockets: accept, then close 4401 when not signed in (a close before accept would show up
+  as an HTTP 403 handshake failure, not the documented code).
+- **Live source switch** resets the live patient's stream and pipeline (stored history kept).
+  Packets from a device no admitted patient has are counted (`unassigned_packets`) and dropped.
+- **Patients:** pydantic models validate PatientCreate/PatientUpdate (422 on bad input; device is
+  a discriminated union on `kind`). Ids `p<n>` from the max stored number + 1. Conflicts (409):
+  same bed or same live device among admitted patients. Changing `device` replaces the runtime
+  (sockets see a `reset`). Discharged patients: `GET …/state` is built from stored history.
+- **Backfill** (not in the original plan): simulated beds get 150 s of history on ward start /
+  demo reset (≈1.6 s startup for 5 beds) so the ward is not blank for the first minute. New
+  admissions are not backfilled (no history before admission); the live bed never is.
+- **Record mode** implemented minimally now because §19 promises the admin endpoints: raw live
+  packets → `data/recordings/<time>_<label>.csv` (device, seq, k, t0_ms, 6 channels, label).
+  Training (M9) is still to do.
+- **Pages:** `/`, `/login`, `/patients/new`, `/patients/{id}`, `/admin/device` serve Cursor's
+  files from `web/`; everything outside `/api/` is sent `no-cache`.
+- **Legacy aliases** (`/api/state`, `/api/events`, `/api/alerts`, `/api/alerts/{id}/ack`, `/ws/live`)
+  follow the patient wearing `ward.live_device_id`; they require sign-in like everything else.
+  `POST /api/source` and `/api/demo/reset` now return the §19 bodies.
+- **Tests:** shape checks against the §19.3 key sets for every endpoint and socket message, 401
+  / 403 / 404 / 409 / 422 paths, WebSocket 4401 / 4404 / discharge, routing, record CSV, reset /
+  reseed, and design rule 8 (same data, opposite risk factors → identical alerts).
+
 ## Clinical app shell contract (§19) — choices made while writing it
 
 - **Both WebSockets:** a light `/ws/ward` (summaries + alert pushes) for the overview and a heavy
