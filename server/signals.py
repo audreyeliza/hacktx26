@@ -45,9 +45,13 @@ def _bandpass_sos(low: float, high: float, fs: float, order: int) -> np.ndarray:
     return butter(order, [low, high], btype="bandpass", fs=fs, output="sos")
 
 
-def bandpass(x: np.ndarray, fs: float, band: tuple[float, float], order: int) -> np.ndarray:
-    """Zero-phase band-pass of a window (linear detrend first)."""
-    return sosfiltfilt(_bandpass_sos(band[0], band[1], fs, order), detrend(x))
+def bandpass(x: np.ndarray, fs: float, band: tuple[float, float], order: int,
+             padlen: int | None = None) -> np.ndarray:
+    """Zero-phase band-pass of a window (linear detrend first). `padlen` (samples) overrides
+    scipy's very short default edge padding when values near the window edge matter."""
+    if padlen is not None:
+        padlen = min(padlen, len(x) - 1)
+    return sosfiltfilt(_bandpass_sos(band[0], band[1], fs, order), detrend(x), padlen=padlen)
 
 
 def fill_gaps(x: np.ndarray, min_valid_fraction: float) -> np.ndarray | None:
@@ -188,7 +192,12 @@ def fuse(estimates: dict[str, RateEstimate], cfg: SignalsCfg,
 # --------------------------------------------------------------------------- vitals
 
 def compute_vitals(buffers: RingBuffer, end: int, fs: float, cfg: Config) -> dict[str, Any]:
-    """All rates, quality and posture for the windows ending at sample index `end`.
+    return analyze(buffers, end, fs, cfg)[0]
+
+
+def analyze(buffers: RingBuffer, end: int, fs: float, cfg: Config) -> tuple[dict[str, Any], np.ndarray]:
+    """All rates, quality and posture for the windows ending at sample index `end`, plus the
+    quality-masked 60 s block (for event detection).
 
     The 60 s rate window is split into 10 s quality segments; motion segments (all channels)
     and off channels are masked as missing data before rates are estimated, so an artifact
@@ -231,4 +240,4 @@ def compute_vitals(buffers: RingBuffer, end: int, fs: float, cfg: Config) -> dic
         "clean_fraction": round(sum(g.label == "clean" for g in segments) / len(segments), 3),
         "posture": posture(raw[:, -n_seg:], cfg),
     })
-    return v
+    return v, block

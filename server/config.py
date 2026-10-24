@@ -141,6 +141,27 @@ class QualityCfg:
 
 
 @dataclass(frozen=True)
+class EventsCfg:
+    point_s: float
+    lag_s: float
+    provisional_lag_s: float
+    env_smooth_s: float
+    edge_pad_s: float
+    baseline_window_s: float
+    baseline_min_s: float
+    apnea_frac: float
+    hypopnea_frac: float
+    min_event_s: float
+    edge_trim_s: float
+    max_event_s: float
+    obstructive_effort_frac: float
+    central_effort_frac: float
+    clear_conf: float
+    ambiguous_conf: float
+    recent_max: int
+
+
+@dataclass(frozen=True)
 class Config:
     contract: ContractCfg
     network: NetworkCfg
@@ -149,6 +170,7 @@ class Config:
     simulator: SimulatorCfg
     signals: SignalsCfg
     quality: QualityCfg
+    events: EventsCfg
 
 
 def _build(cls: type, raw: dict[str, Any], where: str) -> Any:

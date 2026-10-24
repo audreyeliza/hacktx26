@@ -110,6 +110,35 @@ function addTrend(points, replace = false) {
   trend.update("none");
 }
 
+// ---------------------------------------------------------------- events
+let events = [];
+
+function renderEvents() {
+  const ul = $("events");
+  ul.innerHTML = "";
+  if (!events.length) {
+    ul.innerHTML = '<li class="events__empty">No events yet</li>';
+    return;
+  }
+  for (const e of events.slice(0, 50)) {
+    const li = document.createElement("li");
+    const when = new Date(e.start_t * 1000).toLocaleTimeString();
+    li.innerHTML = `<span class="event-type" data-type="${e.type}">${e.type}</span>` +
+      `${when} · ${e.duration_s.toFixed(0)} s · ${e.posture} · airflow ${e.airflow_pct.toFixed(0)}%` +
+      ` · effort ${e.effort_pct.toFixed(0)}% of baseline`;
+    ul.appendChild(li);
+  }
+}
+
+function setEvents(list) { events = list.slice(); renderEvents(); }
+function addEvent(e) { events.unshift(e); renderEvents(); }
+
+function onOngoing(og) {
+  $("ongoing").textContent = og
+    ? `In progress: ${og.apnea ? og.type + " apnea" : "low airflow (hypopnea?)"} for ${og.duration_s.toFixed(0)} s`
+    : "";
+}
+
 function onStatus(s) {
   const ing = s.ingest;
   const st = ing.stats;
@@ -124,6 +153,7 @@ function onStatus(s) {
     ` (${st.missing_packets} missing) · invalid ${st.invalid}` +
     (st.device ? ` · ${st.device}` : "") + net;
   if (s.vitals) onVitals(s.vitals);
+  onOngoing(s.ongoing_event);
 }
 
 // ---------------------------------------------------------------- websocket
@@ -148,11 +178,13 @@ function connect() {
         windowS = msg.window_s;
         trendWindowS = msg.trend_window_s;
         addTrend(msg.trend, true);
+        setEvents(msg.state.recent_events || []);
         fillScenarios(msg.scenarios, msg.state.ingest.source);
         clearWaves();
         onStatus(msg.state);
         break;
-      case "reset": clearWaves(); addTrend([], true); clearVitals(); break;
+      case "reset": clearWaves(); addTrend([], true); clearVitals(); setEvents([]); onOngoing(null); break;
+      case "event": addEvent(msg.event); break;
       case "wave": onWave(msg); break;
       case "status": onStatus(msg); break;
       case "vitals": onVitals(msg.vitals); addTrend(msg.trend); break;

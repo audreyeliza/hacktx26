@@ -113,3 +113,22 @@ quality:                      # v0 rules (AGENTS.md section 7); per 10 s segment
   sensor_off_conf: 0.9
   posture_min_g: 0.6          # gravity component needed to name a posture
   model_path: data/quality_model.joblib   # v1 (milestone 9); v0 rules if missing
+
+events:                       # AGENTS.md section 7 (Events); amplitudes relative to baseline
+  point_s: 1.0                # resolution of the event state machine
+  lag_s: 12.0                 # a second is final this far behind the newest sample (edge effects)
+  provisional_lag_s: 3.0      # seconds up to here are evaluated provisionally for "apnea in progress"
+  env_smooth_s: 1.0           # moving average on the Hilbert envelope
+  edge_pad_s: 10              # reflective padding before filtering / Hilbert
+  baseline_window_s: 120      # baseline = median amplitude over this much normal, valid data
+  baseline_min_s: 30          # no events until this much baseline data exists
+  apnea_frac: 0.10            # airflow < 10 % of baseline
+  hypopnea_frac: 0.70         # airflow < 70 % of baseline
+  min_event_s: 10
+  edge_trim_s: 2              # seconds trimmed at each end of an event before taking medians
+  max_event_s: 120            # a "low" run longer than this is closed (likely a sensor problem)
+  obstructive_effort_frac: 0.30
+  central_effort_frac: 0.20
+  clear_conf: 0.9             # confidence when the effort ratio is clearly on one side
+  ambiguous_conf: 0.5         # effort between the central and obstructive limits
+  recent_max: 200             # events kept in memory per patient

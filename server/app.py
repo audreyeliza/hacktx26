@@ -22,7 +22,7 @@ from pydantic import BaseModel
 
 from server.config import ROOT, Config, load_config
 from server.ingest import CH, Ingest, list_serial_ports, local_ips
-from server.signals import compute_vitals
+from server.pipeline import LIVE_PATIENT_ID, Pipeline, public_event
 from server.simulator import SCENARIO_NAMES
 
 log = logging.getLogger(__name__)
@@ -45,6 +45,9 @@ class State:
         # (vitals_seq, sample time, rr_fused) for the trend chart
         self.trend: deque[tuple[int, float, float | None]] = deque(
             maxlen=int(cfg.live.trend_window_s / cfg.signals.rate_interval_s))
+        self.pipeline = Pipeline(cfg, self.ingest.fs, LIVE_PATIENT_ID)
+        self.event_seq = 0
+        self.event_log: deque[tuple[int, dict[str, Any]]] = deque(maxlen=cfg.events.recent_max)
         self._next_idx = self.step
         self._generation = self.ingest.generation
 
@@ -56,13 +59,18 @@ class State:
             self._next_idx = self.step
             self.vitals = None
             self.trend.clear()
+            self.pipeline = Pipeline(self.cfg, ing.fs, LIVE_PATIENT_ID)
+            self.event_log.clear()
         total = ing.buffers.total
         if total - self._next_idx > ing.buffers.capacity:  # fell far behind: skip ahead
             self._next_idx = (total // self.step) * self.step
         done = 0
         while total >= self._next_idx and done < max_windows:
-            v = compute_vitals(ing.buffers, self._next_idx, ing.fs, self.cfg)
-            v["t"] = ing.sample_time(self._next_idx)
+            res = self.pipeline.step(ing.buffers, self._next_idx, ing.sample_time)
+            v = res.vitals
+            for e in res.events:
+                self.event_seq += 1
+                self.event_log.append((self.event_seq, public_event(e)))
             self.vitals_seq += 1
             self.vitals = v
             self.trend.append((self.vitals_seq, v["t"], v["rr_fused"]))
@@ -73,11 +81,19 @@ class State:
     def trend_since(self, seq: int) -> list[tuple[float, float | None]]:
         return [(t, rr) for s, t, rr in self.trend if s > seq]
 
+    def events_since(self, seq: int) -> list[dict[str, Any]]:
+        return [e for s, e in self.event_log if s > seq]
+
+    def recent_events(self, limit: int = 100) -> list[dict[str, Any]]:
+        return [e for _, e in self.event_log][-limit:][::-1]
+
     def snapshot(self) -> dict[str, Any]:
         return {
             "patient": "Bed 4",
             "ingest": self.ingest.snapshot(),
             "vitals": self.vitals,
+            "recent_events": self.recent_events(10),
+            "ongoing_event": self.pipeline.ongoing,
             "network": {"ips": local_ips(), "http_port": self.cfg.network.http_port,
                         "udp_port": self.cfg.network.udp_port},
         }
@@ -130,6 +146,7 @@ async def live_socket(ws: WebSocket, state: State) -> None:
                         "trend_window_s": cfg.trend_window_s, "trend": state.trend_since(0),
                         "scenarios": list(SCENARIO_NAMES), "state": state.snapshot()})
     last_vitals = state.vitals_seq
+    last_event = state.event_seq
     last_end: int | None = None
     generation = state.ingest.generation
     next_status = 0.0
@@ -146,6 +163,10 @@ async def live_socket(ws: WebSocket, state: State) -> None:
                 await ws.send_json({"type": "vitals", "vitals": state.vitals,
                                     "trend": state.trend_since(last_vitals)})
                 last_vitals = state.vitals_seq
+            if state.event_seq != last_event:
+                for e in state.events_since(last_event if state.event_seq > last_event else 0):
+                    await ws.send_json({"type": "event", "event": e})
+                last_event = state.event_seq
             end = ing.buffers.total
             start = max(end - window_n if last_end is None else max(last_end, end - window_n), 0)
             if end > start:
@@ -210,6 +231,10 @@ def create_app(cfg: Config | None = None, source: str | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         return st().snapshot()
+
+    @app.get("/api/events")
+    async def get_events(limit: int = 100) -> dict[str, Any]:
+        return {"events": st().recent_events(limit)}
 
     @app.get("/api/serial/ports")
     async def serial_ports() -> list[dict[str, Any]]:

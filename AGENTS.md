@@ -135,6 +135,7 @@ breathwatch/
 │   ├── signals.py          # filtering, rate estimation, feature extraction
 │   ├── quality.py          # signal quality: rules (v0) and ML model (v1)
 │   ├── events.py           # apnea / hypopnea detection and classification
+│   ├── pipeline.py         # one patient's step: vitals → events → alerts (added in M5)
 │   ├── alerts.py           # baseline, trends, tiers, escalation, naive monitor
 │   ├── store.py            # SQLite
 │   ├── llm.py              # Gemini API summaries with caching

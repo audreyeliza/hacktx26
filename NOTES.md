@@ -136,6 +136,38 @@ records the reasoning and smaller choices.
   labelled correctly, every clean one is clean (normal 109/109, motion 42/42 clean + 7/7 motion,
   sensor_off 46/46 clean + 36/36 off).
 
+## Smaller choices (M5)
+
+- **Amplitude** = Hilbert envelope of the band-passed signal, 1 s moving average, sampled once
+  per second. Baseline = median over the last 2 min of valid seconds, **excluding seconds inside
+  an apnea** (< 10 %); shallow breathing does update it ("previous 2 min of clean data"). An
+  earlier version froze the baseline below 70 % and produced false hypopneas after the demo's
+  slow decline.
+- **Event extent uses the 70 % crossing; the 10 % rule decides the type.** Measured at the 10 %
+  level, apneas came out 7–9 s short (the airflow decay ramp plus the Hilbert transform's
+  non-local tail, which leaks ~10 % of a breath 2 s away), so a 24 s apnea measured 14 s and
+  could never reach the tier-3 rule. Now: extent = seconds with airflow < 70 % of baseline;
+  apnea if the median airflow over the event interior (2 s trimmed at each end) is < 10 %;
+  hypopnea otherwise; ≥ 10 s for both. Effort over the interior: ≥ 30 % obstructive, < 20 %
+  central, starts < 20 % and ends ≥ 30 % mixed; 20–30 % → nearer class with confidence 0.5.
+  **This is a measurement interpretation of §7, flagged for review.**
+- **Final vs provisional seconds:** a second is final 12 s behind the newest sample. Closer to
+  the edge, breathing that resumes right at the window edge (mirrored by the edge padding)
+  inflated airflow 3–4× and turned short apneas into hypopneas. Seconds 3–12 s behind are
+  evaluated provisionally every update, only to report an apnea *in progress*
+  (`ongoing_event`) for alerts. Result: the demo's 24 s apnea is reported "≥ 20 s in progress"
+  at ~25 s of apnea (cadence-limited); final events appear ~12–17 s after they end.
+- **Masked seconds abort** an event in progress (motion, sensor off, gaps) instead of being read
+  as "no airflow". Effort = belt only for now; if the belt is off, no events are scored (accel
+  fallback is a possible M10 item).
+- **Results:** seeds 42 + 1–5: obstructive 36/36, central 36/36, hypopnea 36/36 with the right
+  type; 0 false events in ~3.5 h of normal/motion/sensor_off/opioid_decline data; start/end within
+  ±3 s of truth. Mixed is not in the simulator; a synthetic test covers it.
+- **New module `server/pipeline.py`**: one patient's vitals → events (→ alerts) step, so M6.5 can
+  run one per patient. Events carry `patient_id` (`p4` for the single-patient API) and follow
+  the §19.3 Event shape; `GET /api/events` and WebSocket `event` messages added; the dashboard
+  lists events and shows an apnea in progress.
+
 ## Clinical app shell contract (§19) — choices made while writing it
 
 - **Both WebSockets:** a light `/ws/ward` (summaries + alert pushes) for the overview and a heavy

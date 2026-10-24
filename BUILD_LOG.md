@@ -23,6 +23,7 @@ Honest record of which tool or agent produced each part of the project.
 | Sat afternoon | Claude Code | M3 | `server/signals.py` (filters, peak + FFT rates, accel PCA, `rr_fused` fusion incl. single-source rule), processing loop on sample time, vitals + trend on the WebSocket and dashboard, tests scoring against simulator ground truth. Checked `opioid_decline` at 10x in Chrome. |
 | Sat evening | Claude Code | docs | AGENTS.md §19 "Clinical app shell": API contract (auth, patients, per-patient endpoints, ward + patient WebSockets, pages, permissions, config) so Cursor's agent can build the frontend against mocks in parallel; milestone 6.5 added; design rule 8 (risk factors never change thresholds). |
 | Sat evening | Claude Code | M4 | `server/quality.py` (v0 rules per 10 s segment: flat/clipped channels, motion energy, belt/accel disagreement; posture), motion/off segments masked out of the rate window, tests vs ground truth incl. "apneas are never sensor_off". |
+| Sat evening | Claude Code | M5 | `server/events.py` (Hilbert-envelope state machine at 1 s, rolling baseline, obstructive/central/mixed/hypopnea, final + provisional lags), `server/pipeline.py`, events on API/WebSocket/dashboard, tests scored against ground truth over several seeds. Two iterations driven by per-second traces (baseline freeze, window-edge leakage). |
 
 ## Prompts that worked
 

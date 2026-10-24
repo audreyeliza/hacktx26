@@ -66,6 +66,15 @@ body {
 .wave__plot { position: relative; height: 95px; }
 .trend { position: relative; height: 180px; }
 
+.events { list-style: none; margin: 0; padding: 0; font-size: 0.9rem; max-height: 220px; overflow-y: auto; }
+.events li { padding: 4px 0; border-bottom: 1px solid var(--border); }
+.events__empty { color: var(--muted); }
+.event-type { font-size: 0.8rem; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--border); margin-right: 6px; }
+.event-type[data-type="obstructive"] { background: #fdf1e3; }
+.event-type[data-type="central"] { background: #e8eefa; }
+.event-type[data-type="mixed"] { background: #f1e8f7; }
+.event-type[data-type="hypopnea"] { background: #eef5ee; }
+
 .controls__row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .controls input[type="number"] { width: 4.5em; }
 .status { font-size: 0.8rem; color: var(--muted); margin: 8px 0 0; word-break: break-word; }
