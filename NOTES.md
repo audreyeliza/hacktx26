@@ -107,6 +107,26 @@ records the reasoning and smaller choices.
 - **Dashboard tile** shows `rr_fused`, confidence, flags, per-source rates and the 30 s
   preliminary value; the trend chart plots `rr_fused` (baseline line comes with alerts, M6).
 
+## Clinical app shell contract (§19) — choices made while writing it
+
+- **Both WebSockets:** a light `/ws/ward` (summaries + alert pushes) for the overview and a heavy
+  `/ws/patients/{id}` (waveforms, vitals, events, alerts) for the detail page, so six patients'
+  waveforms are never streamed to the overview.
+- **Times are epoch seconds** (`*_t`), matching what the server already sends; the frontend
+  multiplies by 1000 for JS `Date`.
+- **Permissions:** nurses can admit/update/discharge (they do on a ward); physicians view, ack and
+  generate summaries; admin-only for source/record/reset. Everyone signed in can acknowledge.
+- **Ward tier** = highest tier among *unacknowledged* active alerts, so acknowledging calms the
+  card but the alert stays visible in history.
+- **Patient ids** are server-assigned `p<n>`; the live patient in the default ward is `p4`.
+  Events (M5) and alerts (M6) already carry `patient_id` so M6.5 does not reshape them.
+- **One live wearable**, routed by the packet's `device` field; packets from unassigned devices
+  are counted and dropped (shown on the admin page).
+- **Added endpoints not in the request but needed by the pages:** `GET /api/patients/{id}/vitals`
+  (trend chart history), `GET /api/patients/{id}/summary/chart.png`, `GET /api/admin/device`,
+  `GET /api/auth/demo-accounts` (login buttons without exposing passwords).
+- **Bed uniqueness:** two admitted patients cannot share a bed (409).
+
 ## Open questions
 
 - SpaceXSI track: does Claude Code count as part of the multi-agent workflow? (team is asking MLH)

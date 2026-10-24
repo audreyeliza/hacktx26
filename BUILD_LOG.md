@@ -22,6 +22,7 @@ Honest record of which tool or agent produced each part of the project.
 | Sat afternoon | Claude Code | M2 | `server/ingest.py` (ring buffers, seq timeline with NaN gaps, UDP / USB serial / in-process simulator sources), `server/app.py` (REST, WebSocket, static), minimal `web/` dashboard, tests incl. serial over a pty. Checked in Chrome via the LAN address. |
 
 | Sat afternoon | Claude Code | M3 | `server/signals.py` (filters, peak + FFT rates, accel PCA, `rr_fused` fusion incl. single-source rule), processing loop on sample time, vitals + trend on the WebSocket and dashboard, tests scoring against simulator ground truth. Checked `opioid_decline` at 10x in Chrome. |
+| Sat evening | Claude Code | docs | AGENTS.md §19 "Clinical app shell": API contract (auth, patients, per-patient endpoints, ward + patient WebSockets, pages, permissions, config) so Cursor's agent can build the frontend against mocks in parallel; milestone 6.5 added; design rule 8 (risk factors never change thresholds). |
 
 ## Prompts that worked
 

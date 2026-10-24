@@ -44,6 +44,8 @@ footer.
    no local LLMs, no build step for the frontend.
 6. Every alert stores a human-readable `reason` string.
 7. Demo must survive no internet: cache the last LLM outputs and show them if the API fails.
+8. **Patient risk factors (opioids, O2, OSA, age) are display and LLM context only.** They never
+   change alert thresholds, tiers, persistence or cooldowns (§19).
 
 ## 3. Hardware (for context; the human builds this)
 
@@ -137,11 +139,14 @@ breathwatch/
 │   ├── store.py            # SQLite
 │   ├── llm.py              # Gemini API summaries with caching
 │   ├── record.py           # record mode: raw data + labels to CSV
-│   └── train_quality.py    # trains the signal-quality model from recordings
+│   ├── train_quality.py    # trains the signal-quality model from recordings
+│   ├── auth.py             # demo accounts, sessions, role checks (§19, M6.5)
+│   └── patients.py         # patient registry + one pipeline per patient (§19, M6.5)
 ├── web/
-│   ├── index.html          # nurses' station dashboard
+│   ├── index.html          # nurses' station dashboard (from M6.5: ward overview, §19)
 │   ├── app.js
-│   └── style.css
+│   ├── style.css
+│   └── …                   # from M6.5: login.html, patient.html, patient-new.html, admin.html, common.js
 ├── data/                   # recordings, model file, sqlite db (gitignored)
 ├── tests/                  # pytest, mostly run against simulator data
 └── requirements.txt
@@ -296,6 +301,9 @@ We are entering MLH "Best Use of Gemini API", so Gemini is the LLM provider.
 
 ## 11. Server API (`app.py`)
 
+Single-patient API used up to M6. **§19 is the multi-patient contract that replaces it from
+M6.5**; these endpoints then stay as deprecated aliases for the live patient (§19.8).
+
 - `GET /` serves `web/index.html`.
 - `WS /ws/live`: pushes at 10 Hz the latest downsampled waveforms (effort, airflow, pulse),
   and every 5 s the vitals, quality, posture, tier, and new events/alerts.
@@ -310,6 +318,9 @@ We are entering MLH "Best Use of Gemini API", so Gemini is the LLM provider.
   which also prints the dashboard URL for phones and the `SERVER_IP` to use).
 
 ## 12. Dashboard (`web/`)
+
+From M6.5 this single-patient dashboard becomes the **patient detail page** of the clinical
+app shell (§19.5), and the Source/record/reset controls move to the admin "Device & data" page.
 
 Vanilla HTML/JS/CSS, Chart.js, no build step. Chart.js is vendored in `web/vendor/` (decided:
 the demo network may have no internet, and a CDN script would leave the page blank). Single page, works on a laptop and a
@@ -357,6 +368,13 @@ Work in this order. Each milestone must pass its check before moving on. Commit 
    with the right type; ≤ 1 false event per 10 min on `normal`.
 6. **Alerts + naive monitor.** On `demo`, smart monitor raises far fewer alarms than naive on
    the motion phase and still reaches tier 3 on the decline and the long apnea.
+
+   **6.5. Multi-patient backend (§19).** Auth (login/demo/logout/me, roles enforced: tests for
+   401 and 403), patients in SQLite with the default 6-bed ward seeded, one pipeline per
+   admitted patient (Bed 4 live, others simulated), every §19.5 endpoint and §19.6 WebSocket
+   returns the documented shapes (tests check the keys), device-assignment conflicts give 409,
+   and a test shows risk factors do not change alerts. Old single-patient endpoints still work
+   as aliases. The frontend is built in parallel by Cursor's agent against §19.
 7. **LLM (Gemini).** Summary endpoints work, including the chart image; cache fallback works
    with the network unplugged (simulate with a bad key).
 8. **Firmware.** Pico packets pass the same schema test; switching source to `udp` shows real
@@ -416,3 +434,367 @@ Work in this order. Each milestone must pass its check before moving on. Commit 
   sink that mirrors the `vitals`, `events` and `alerts` tables to a Tiger Cloud (TimescaleDB)
   hypertable via `psycopg`, enabled only when `TIGER_DATABASE_URL` is set. SQLite stays the
   local source of truth so the demo works offline. Do not start this before milestone 9.
+
+## 19. Clinical app shell (multi-patient ward) — API contract
+
+Built in **milestone 6.5** (backend, Claude Code). The frontend (Cursor's agent) is built **in
+parallel against this contract with mock data**, so the shapes below are binding. Change them
+only by editing this section first, and say so in `NOTES.md`.
+
+### 19.1 Scope and rules
+
+- **Demo login:** accounts in `config.yaml`, roles `nurse`, `physician`, `admin`, a session
+  cookie, and a one-click **"Demo sign-in"** per role. **Demo-grade only**: plaintext demo
+  passwords in config, in-memory sessions (a server restart signs everyone out), no lockout,
+  no CSRF tokens (relies on `SameSite=Lax`), plain HTTP on the LAN. The login page must say
+  "Demo accounts — do not use real credentials."
+- **Multiple patients.** Each patient has an id, name, bed, risk factors and a **device
+  assignment**: either the **live wearable** (by device id) or a **simulator scenario**.
+  Each admitted patient runs **its own pipeline** (buffers → rates → quality → events →
+  alerts). Patients are stored in SQLite (`patients` table).
+- **Default ward:** 6 beds, seeded on first start when the `patients` table is empty
+  (`ward.seed` in `config.yaml`). Bed 4 = live wearable `patch-01`; the others are simulated
+  with a mix of scenarios (looping, real-time). All names are fictional.
+- **Risk factors are display and LLM context only. They never change alert thresholds, tiers,
+  persistence or cooldowns.** (Also design rule 8 in §2.) A test must show that the same data
+  with different risk factors gives identical alerts.
+- **Live wearable input** (UDP / serial / simulator-as-live) is still chosen with the
+  admin-only `POST /api/source`; packets with `device` = `patch-01` go to the patient who has
+  that device assigned. Packets for a device nobody is assigned to are counted and dropped.
+- A device id can be assigned to **at most one admitted patient** (409 otherwise).
+- Discharging stops the patient's pipeline; their stored vitals/events/alerts are kept.
+
+### 19.2 Conventions
+
+- JSON everywhere. **All times are Unix epoch seconds (float, UTC)**, in fields ending in `_t`
+  (or `t`). Durations end in `_s`. Rates are breaths/min (`rr*`) and beats/min (`hr`).
+- Missing/unknown values are `null`, never omitted.
+- Errors: `{"detail": "<human-readable message>"}` with status `400` bad input, `401` not
+  signed in, `403` role not allowed, `404` unknown id, `409` conflict, `422` schema
+  validation (FastAPI's default 422 body is acceptable).
+- Auth: session cookie `bw_session` (HttpOnly, `SameSite=Lax`, `Path=/`). WebSockets use the
+  same cookie (same origin); an unauthenticated socket is closed with code **4401**, a
+  forbidden one with **4403**.
+- `auth.enabled: false` in config (tests/dev only) treats every request as the first admin
+  account.
+
+### 19.3 Shared objects
+
+**User**
+```json
+{"username": "nurse", "display_name": "Demo Nurse", "role": "nurse"}
+```
+
+**RiskFactors** (all required on create; `osa` is a string, the rest booleans)
+```json
+{"opioids": true, "supplemental_o2": false, "osa": "suspected", "age_over_65": true}
+```
+`osa` ∈ `"none" | "suspected" | "known"`.
+
+**Device** (assignment), one of:
+```json
+{"kind": "live", "device_id": "patch-01"}
+{"kind": "simulator", "scenario": "opioid_decline", "speed": 1.0, "loop": true}
+```
+`scenario` ∈ `normal | motion | opioid_decline | obstructive | central | hypopnea |
+sensor_off | demo`.
+
+**Patient**
+```json
+{
+  "id": "p4",
+  "name": "Jordan Avery",
+  "bed": "4",
+  "risk_factors": {"opioids": true, "supplemental_o2": true, "osa": "suspected", "age_over_65": false},
+  "device": {"kind": "live", "device_id": "patch-01"},
+  "notes": "Post-op day 1, PCA morphine",
+  "status": "admitted",
+  "admitted_t": 1792870000.0,
+  "discharged_t": null
+}
+```
+`id` is server-assigned (`p` + integer). `status` ∈ `"admitted" | "discharged"`. `bed` is a
+string ("4", "4B").
+
+**DeviceStatus** (runtime status of the patient's input)
+```json
+{
+  "kind": "live",
+  "device_id": "patch-01",
+  "scenario": null,
+  "link_ok": true,
+  "source": "serial:/dev/cu.usbmodem1101",
+  "source_status": "connected to /dev/cu.usbmodem1101",
+  "packets": 1840,
+  "gaps": 1,
+  "missing_packets": 3,
+  "last_packet_t": 1792877823.6
+}
+```
+For simulated patients: `kind: "simulator"`, `device_id: null`, `scenario` set, `source:
+"simulator:<scenario>"`, `link_ok: true` while running.
+
+**Vitals** (one 5 s update; fields from §7, M3–M4)
+```json
+{
+  "t": 1792877820.0,
+  "rr_fused": 14.8, "rr_conf": 0.95, "rr_sources": ["belt", "accel", "airflow"],
+  "flags": [],
+  "rr_belt": 14.9, "rr_accel": 14.6, "rr_airflow": 14.8,
+  "conf_belt": 0.97, "conf_accel": 0.93, "conf_airflow": 0.96,
+  "rr_prelim": 15.1,
+  "hr": 70.2, "hr_conf": 0.9,
+  "quality": "clean", "quality_conf": 0.92,
+  "posture": "supine",
+  "motion": 0.004
+}
+```
+`flags` may contain `"single_source"`, `"sources_disagree"`, `"outlier:<source>"`,
+`"no_clean_source"`. `quality` ∈ `"clean" | "motion" | "sensor_off" | "unknown"`.
+`posture` ∈ `"supine" | "left" | "right" | "upright" | "unknown"`.
+
+**Event** (M5)
+```json
+{
+  "id": 17,
+  "patient_id": "p4",
+  "type": "obstructive",
+  "start_t": 1792877700.0,
+  "end_t": 1792877722.5,
+  "duration_s": 22.5,
+  "confidence": 0.85,
+  "posture": "supine",
+  "airflow_pct": 4.0,
+  "effort_pct": 96.0
+}
+```
+`type` ∈ `"obstructive" | "central" | "mixed" | "hypopnea"`. `airflow_pct`/`effort_pct`:
+median amplitude during the event as % of baseline.
+
+**Alert** (M6)
+```json
+{
+  "id": 42,
+  "patient_id": "p4",
+  "kind": "apnea",
+  "tier": 3,
+  "reason": "Apnea 22 s (obstructive, supine), signal confidence high",
+  "status": "active",
+  "raised_t": 1792877722.5,
+  "updated_t": 1792877722.5,
+  "escalated": false,
+  "escalated_t": null,
+  "acknowledged_by": null,
+  "acknowledged_t": null,
+  "ack_note": null
+}
+```
+`kind` ∈ `"rr_low" | "rr_trend" | "apnea" | "apnea_cluster" | "sensor_check"`.
+`tier` 0–3 (§8). `status` ∈ `"active" | "acknowledged" | "resolved"`. `escalated` becomes true
+when a tier-3 alert is not acknowledged within 60 s ("charge nurse"). `acknowledged_by` is a
+**User** or `null`.
+
+**MonitorCounts** (naive vs smart, §8)
+```json
+{"smart": {"alarms": 3, "per_hour": 1.5}, "naive": {"alarms": 41, "per_hour": 20.5}, "since_t": 1792870000.0}
+```
+
+**PatientSummary** (one row of the ward overview)
+```json
+{
+  "id": "p4",
+  "name": "Jordan Avery",
+  "bed": "4",
+  "device_kind": "live",
+  "scenario": null,
+  "link_ok": true,
+  "tier": 2,
+  "tier_reason": "Breathing rate 7/min for 75 s (baseline 15/min), signal confidence high",
+  "rr": 7.2,
+  "rr_conf": 0.91,
+  "hr": 68.0,
+  "posture": "supine",
+  "quality": "clean",
+  "last_event": {"type": "obstructive", "start_t": 1792877700.0, "duration_s": 22.5},
+  "unacked_alerts": 1,
+  "risk_factors": {"opioids": true, "supplemental_o2": true, "osa": "suspected", "age_over_65": false},
+  "updated_t": 1792877820.0
+}
+```
+`tier` is the highest tier among the patient's **active (unacknowledged)** alerts, else 0.
+`tier_reason` is that alert's `reason` (or `null`). `last_event` is `null` if none.
+
+**PatientState** (patient detail page)
+```json
+{
+  "patient": { "...": "Patient" },
+  "device": { "...": "DeviceStatus" },
+  "vitals": { "...": "Vitals, or null before the first update" },
+  "tier": 2,
+  "tier_reason": "…",
+  "baseline": {"rr": 15.1, "since_t": 1792870000.0, "n": 120},
+  "active_alerts": [ { "...": "Alert" } ],
+  "recent_events": [ { "...": "Event (newest first, max 10)" } ],
+  "monitors": { "...": "MonitorCounts" }
+}
+```
+`baseline` is `null` until enough clean data exists (§8).
+
+**Summary** (LLM output, §10)
+```json
+{
+  "kind": "handoff",
+  "patient_id": "p4",
+  "alert_id": null,
+  "text": "Situation: …",
+  "sbar": {"situation": "…", "background": "…", "assessment": "…", "recommendation": "…"},
+  "model": "gemini-…",
+  "cached": false,
+  "created_t": 1792877900.0
+}
+```
+`kind` ∈ `"explain" | "overnight" | "handoff"`. `sbar` is `null` unless `kind` is `handoff`.
+`cached: true` means the API failed and this is the latest cached response.
+
+### 19.4 Permissions
+
+| Action | nurse | physician | admin |
+|---|---|---|---|
+| View ward, patients, state, vitals, events, alerts; WebSockets | ✓ | ✓ | ✓ |
+| Acknowledge alerts | ✓ | ✓ | ✓ |
+| Generate summaries | ✓ | ✓ | ✓ |
+| Create / update / discharge patients | ✓ | — | ✓ |
+| Source, serial ports, record, demo reset (`/api/source`, `/api/serial/ports`, `/api/record/*`, `/api/demo/reset`, `/api/admin/*`) | — | — | ✓ |
+
+### 19.5 Endpoints
+
+**Auth**
+
+| Method & path | Body | Response |
+|---|---|---|
+| `POST /api/auth/login` | `{"username": "nurse", "password": "demo"}` | `200 {"user": User}` + `Set-Cookie`; `401` bad credentials |
+| `POST /api/auth/demo` | `{"role": "nurse"}` | `200 {"user": User}` + cookie (signs in as the first account with that role) |
+| `POST /api/auth/logout` | — | `204` (clears cookie; works when signed out too) |
+| `GET /api/auth/me` | — | `200 {"user": User}`; `401` |
+| `GET /api/auth/demo-accounts` | — | `200 [{"role": "nurse", "display_name": "Demo Nurse"}, …]` (no auth; for the login page buttons; never returns passwords) |
+
+**Ward and patients**
+
+| Method & path | Body / query | Response |
+|---|---|---|
+| `GET /api/patients` | `?status=admitted` (default) `\|discharged\|all` | `200 {"patients": [PatientSummary], "counts": {"0": 3, "1": 1, "2": 1, "3": 1}, "generated_t": …}` sorted by tier desc, then `unacked_alerts` desc, then bed (natural order) |
+| `POST /api/patients` | PatientCreate (below) | `201 Patient`; `409` if the live device is already assigned |
+| `GET /api/patients/{id}` | — | `200 Patient`; `404` |
+| `PATCH /api/patients/{id}` | any subset of PatientCreate fields | `200 Patient`. Changing `device` restarts that patient's pipeline (state cleared, stored history kept). `409` on device conflict, `400` if discharged |
+| `POST /api/patients/{id}/discharge` | `{}` | `200 Patient` (`status: "discharged"`); idempotent |
+
+PatientCreate:
+```json
+{
+  "name": "Jordan Avery",
+  "bed": "4",
+  "risk_factors": {"opioids": true, "supplemental_o2": true, "osa": "suspected", "age_over_65": false},
+  "device": {"kind": "simulator", "scenario": "normal", "speed": 1.0, "loop": true},
+  "notes": ""
+}
+```
+`name`, `bed`, `risk_factors`, `device` required; `notes` optional (default `""`);
+`speed` default 1.0, `loop` default true. Two admitted patients may not share a bed (409).
+
+**Per patient** (`{id}` = patient id; all `404` for unknown ids)
+
+| Method & path | Query / body | Response |
+|---|---|---|
+| `GET /api/patients/{id}/state` | — | `200 PatientState` |
+| `GET /api/patients/{id}/vitals` | `?since_t=&limit=720` | `200 {"vitals": [Vitals]}` oldest first (trend chart; default last 60 min) |
+| `GET /api/patients/{id}/events` | `?since_t=&limit=100` | `200 {"events": [Event]}` newest first |
+| `GET /api/patients/{id}/alerts` | `?status=active\|all` (default all) `&since_t=&limit=100` | `200 {"alerts": [Alert]}` newest first |
+| `POST /api/patients/{id}/alerts/{alert_id}/ack` | `{"note": "Patient roused, RR 12"}` (note optional) | `200 Alert` (`status: "acknowledged"`, `acknowledged_by` = current user); `404`; acknowledging twice returns the alert unchanged |
+| `POST /api/patients/{id}/summary/explain/{alert_id}` | — | `200 Summary` |
+| `POST /api/patients/{id}/summary/overnight` | — | `200 Summary` |
+| `POST /api/patients/{id}/summary/handoff` | — | `200 Summary` (with `sbar`) |
+| `GET /api/patients/{id}/summary/chart.png` | — | `200 image/png` (the trend chart sent to Gemini) |
+
+**Admin: device & data** (existing endpoints keep their paths and bodies; admin-only)
+
+| Method & path | Body | Response |
+|---|---|---|
+| `GET /api/admin/device` | — | `200 {"source": "udp", "source_status": "…", "link_ok": true, "stats": {…ingest stats…}, "assigned_patient_id": "p4", "unassigned_packets": 0, "network": {"ips": ["172.20.10.10"], "http_port": 8000, "udp_port": 5005}, "recording": null \| {"label": "motion", "started_t": …, "samples": 1200}}` |
+| `POST /api/source` | `{"source": "serial:auto", "speed": 1, "loop": false}` | `200` same body as `GET /api/admin/device` |
+| `GET /api/serial/ports` | — | `200 [{"device": "/dev/cu.usbmodem1101", "description": "…", "vid": 11914, "pid": 5, "is_pico": true}]` |
+| `POST /api/record/start` | `{"label": "motion"}` (§12 labels) | `200 {"recording": {…}}` |
+| `POST /api/record/stop` | — | `200 {"recording": null, "file": "data/recordings/….csv"}` |
+| `POST /api/demo/reset` | `{"reseed_ward": false}` | `200 {"patients": [PatientSummary], …}` (same as `GET /api/patients`). Clears runtime state, events, alerts and vitals of all patients and restarts simulators; `reseed_ward: true` also deletes all patients and re-creates the default ward |
+
+**Pages** (static files served by the backend; all except `/login` redirect to `/login`
+when not signed in — the JS does this on a `401` from `/api/auth/me`)
+
+| Path | File | Content |
+|---|---|---|
+| `/login` | `web/login.html` | username/password form + one "Demo sign-in" button per role + the demo-credentials warning |
+| `/` | `web/index.html` | **Ward overview**: tier-count banner (from `counts`), patient cards sorted as the API returns them, live vs simulated marker, unacked count; click → patient detail |
+| `/patients/new` | `web/patient-new.html` | Add-patient form (PatientCreate); live device option disabled with a hint when already assigned (409 shown) |
+| `/patients/{id}` | `web/patient.html` | **Patient detail** = today's dashboard for one patient (tile, waveforms, trend with baseline, events, alerts with Acknowledge, naive vs smart, AI panel), plus risk factors, edit and discharge |
+| `/admin/device` | `web/admin.html` | **Device & data** (admin): Source selector, serial ports, record mode with label buttons, demo reset, network/connection info |
+
+Shared code goes in `web/common.js` (auth check, fetch helper, nav bar with user and sign-out)
+and `web/style.css`. Every page keeps the §12 footer.
+
+### 19.6 WebSockets
+
+**Ward socket `WS /ws/ward`** (overview page; light)
+
+| Message | When | Shape |
+|---|---|---|
+| `ward` | on connect, then at most every 2 s when anything changed | `{"type": "ward", "patients": [PatientSummary], "counts": {"0": 3, "1": 1, "2": 1, "3": 1}, "generated_t": …}` |
+| `alert` | immediately when any alert is raised, changes tier, escalates, is acknowledged or resolved | `{"type": "alert", "patient_id": "p4", "alert": Alert}` |
+
+**Patient socket `WS /ws/patients/{id}`** (detail page; includes waveforms)
+
+| Message | When | Shape |
+|---|---|---|
+| `hello` | on connect | `{"type": "hello", "patient": Patient, "state": PatientState, "trend": [[t, rr_fused_or_null], …], "window_s": 30, "trend_window_s": 3600}` |
+| `wave` | up to 10 Hz (new samples only) | `{"type": "wave", "start": 15000, "step": 2, "fs": 50.0, "end": 15050, "t_end": …, "effort": [int\|null…], "airflow": [int\|null…], "pulse": [int\|null…]}` — raw ADC counts decimated to 25 Hz; `start`/`end` are sample indices; sample `start + k·step` is element `k`; `null` = gap |
+| `vitals` | every 5 s of sample time | `{"type": "vitals", "vitals": Vitals, "trend": [[t, rr_fused_or_null], …]}` (`trend` = only the new points) |
+| `event` | when an event ends | `{"type": "event", "event": Event}` |
+| `alert` | as on the ward socket, this patient only | `{"type": "alert", "alert": Alert}` |
+| `status` | every 1 s | `{"type": "status", "device": DeviceStatus, "tier": 2, "monitors": MonitorCounts}` |
+| `reset` | pipeline restarted (device change, demo reset) | `{"type": "reset"}` — clear charts, then expect fresh data |
+| `discharged` | patient discharged | `{"type": "discharged", "patient": Patient}`; server then closes the socket (code 1000) |
+
+Unknown patient id: the socket is closed with code **4404**.
+
+### 19.7 Config (added in M6.5)
+
+```yaml
+auth:
+  enabled: true
+  cookie_name: bw_session
+  session_ttl_h: 12
+  accounts:            # DEMO ONLY — never real credentials
+    - {username: nurse, display_name: Demo Nurse, role: nurse, password: demo}
+    - {username: doctor, display_name: Demo Physician, role: physician, password: demo}
+    - {username: admin, display_name: Demo Admin, role: admin, password: demo}
+ward:
+  live_device_id: patch-01
+  seed:                # created when the patients table is empty
+    - {bed: "1", name: …, device: {kind: simulator, scenario: normal}, risk_factors: {…}}
+    - …               # 6 beds; bed 4 = {kind: live, device_id: patch-01}
+```
+Default seed mix: bed 1 `normal`, bed 2 `motion`, bed 3 `obstructive` (OSA suspected),
+bed 4 live, bed 5 `opioid_decline` (opioids), bed 6 `central`. Simulated patients start at a
+random offset into their scenario so the ward does not move in lockstep.
+
+### 19.8 Transition from the single-patient API
+
+Until M6.5, the single-patient endpoints (`/api/state`, `/api/events`, `/api/alerts`,
+`/api/alerts/{id}/ack`, `/api/summary/*`, `/ws/live`) refer to the live patient (`p4`). From
+M6.5 they remain as aliases for the patient assigned to `ward.live_device_id` (deprecated, for
+older tests/tools); new frontend code uses only §19 endpoints.
+
+### 19.9 Mock data for the frontend
+
+Cursor's agent mocks these endpoints from the examples above. Mocks must cover: tier 0–3
+patients, a disconnected live device (`link_ok: false`), a patient with `rr: null`
+(`flags: ["no_clean_source"]`), a `single_source` patient, an escalated tier-3 alert, a
+`cached: true` summary, and `401` → redirect to `/login`.
