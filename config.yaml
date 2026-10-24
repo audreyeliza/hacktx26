@@ -1,0 +1,82 @@
+# BreathWatch configuration. All tunable numbers live here.
+# Every threshold is a DEMO value for a research prototype, not a clinical value.
+
+contract:                  # AGENTS.md section 4 (do not change without updating AGENTS.md)
+  version: 1
+  sample_rate_hz: 50
+  dt_ms: 20
+  batch_samples: 25        # one packet every 0.5 s
+  max_samples: 100         # validator upper bound per packet
+  adc_max: 65535
+  accel_max_g: 2.0         # MMA8452Q at +/-2 g
+  max_datagram_bytes: 1400 # stay below a typical UDP MTU so packets never fragment
+
+network:
+  server_ip: 10.42.0.1     # NetworkManager hotspot default on the Pi
+  udp_host: 0.0.0.0
+  udp_port: 5005
+  command_port: 5006
+  serial_baud: 115200
+
+ingest:
+  buffer_s: 600            # ring buffer length per channel (10 min)
+  max_gap_fill_s: 30       # longer seq gaps are logged and the buffer restarts from "now"
+  reorder_tolerance: 4     # seq numbers this far behind the newest are treated as late duplicates
+
+simulator:
+  seed: 42
+  device: patch-01
+  ticks_wrap: 1073741824   # MicroPython rp2 ticks_ms period (2**30)
+  start_ticks_ms: 5210000
+  # Raw-signal shape (ADC counts unless noted)
+  pressure_dc: 31000
+  pressure_amp: 2400
+  pressure_noise: 60
+  pressure_drift_amp: 300
+  pressure_drift_hz: 0.008
+  therm_dc: 40000
+  therm_amp: 1100
+  therm_noise: 25
+  therm_lag_s: 0.35        # airflow lags effort
+  therm_tau_s: 0.45        # thermistor first-order response
+  therm_ambient: 36500     # reading when the thermistor is off the face
+  pulse_dc: 28000
+  pulse_amp: 3200
+  pulse_noise: 80
+  accel_breath_g: 0.006    # breathing-induced tilt at the sternum
+  accel_noise_g: 0.002
+  motion_accel_g: 0.35     # burst amplitude during motion artifacts
+  motion_pressure_amp: 9000
+  motion_therm_amp: 2500
+  envelope_tau_s: 0.8      # smoothing of effort/airflow amplitude changes
+  apnea_residual: 0.03     # fraction of amplitude left in a "flat" channel
+  hypopnea_level: 0.4
+  hr_bpm: 70
+  hr_wobble_bpm: 2         # slow heart-rate variability
+  hr_wobble_period_s: 20
+  pulse_resp_mod: 300      # respiratory baseline modulation of the PPG
+  rr_wobble_bpm: 1.0       # normal breathing wanders 14-16/min
+  rr_wobble_period_s: 180
+  breath_skew: 0.35        # inspiration faster than expiration
+  labels_dir: data/sim_labels
+
+signals:
+  filter_order: 2
+  resp_band_hz: [0.05, 1.0]   # decided: 0.05 (not 0.1) so 6/min is not at the -3 dB corner
+  pulse_band_hz: [0.7, 3.5]
+  motion_highpass_hz: 1.5
+  motion_rms_window_s: 2
+  rate_interval_s: 5
+  rate_window_s: 60           # reported rate
+  prelim_window_s: 30         # display-only preliminary estimate
+  min_valid_fraction: 0.8     # fraction of non-NaN samples a window needs
+  rr_min_bpm: 3
+  rr_max_bpm: 40
+  hr_min_bpm: 35
+  hr_max_bpm: 180
+  peak_prominence_frac: 0.3   # breath peaks must exceed this fraction of the window's robust amplitude
+  fft_confirm_bpm: 2.0        # peak-rate vs FFT-rate agreement for full confidence
+  agree_bpm: 3.0              # sources within this of each other are "agreeing"
+  single_source_conf_cap: 0.6 # decided: one clean source still meets the alert gate
+  flat_std_counts: 40         # a channel with lower filtered std carries no breathing signal
+  accel_min_breath_g: 0.0015  # minimum accel-effort std to report rr_accel
