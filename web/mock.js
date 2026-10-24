@@ -9,7 +9,7 @@
  * waveforms and rates move with the clock. Demo reset clears alerts, events and
  * rate history. Restoring the default ward puts the scripted six beds back.
  */
-export const USE_MOCK = true;
+export const USE_MOCK = false;
 
 export const SCENARIOS = [
   "normal", "motion", "opioid_decline", "obstructive", "central", "hypopnea", "sensor_off", "demo",
@@ -711,8 +711,11 @@ function patientEvents(id) {
 }
 
 function patientAlerts(id, status) {
+  const allowed = status === "unacked" ? ["active", "awaiting_ack"]
+    : status === "all" || !status ? null
+    : [status];
   return ensure().alerts
-    .filter((a) => a.patient_id === id && (status === "active" ? a.status === "active" : true))
+    .filter((a) => a.patient_id === id && (allowed === null || allowed.includes(a.status)))
     .sort((a, b) => b.raised_t - a.raised_t)
     .map(publicAlert);
 }
@@ -1087,7 +1090,7 @@ function mockRoute(method, path, body, query) {
       requireUser();
       mustPatient(id);
       const status = query.status || "all";
-      let alerts = patientAlerts(id, status === "active" ? "active" : "all");
+      let alerts = patientAlerts(id, status);
       if (query.since_t) alerts = alerts.filter((a) => a.raised_t >= Number(query.since_t));
       const limit = query.limit ? Number(query.limit) : 100;
       return { status: 200, body: { alerts: alerts.slice(0, limit) } };

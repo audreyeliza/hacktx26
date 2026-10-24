@@ -30,6 +30,7 @@ Honest record of which tool or agent produced each part of the project.
 | Sat night | Claude Code | M6.5 | Multi-patient backend for §19: `server/auth.py`, `server/patients.py` (ward, per-patient runtimes, routing), `server/record.py`, Stream/Ingest split, all §19 endpoints + `/ws/ward` + `/ws/patients/{id}` + page routes + legacy aliases, ward backfill; `tests/test_ward.py` checks every documented shape. Read Cursor's `web/mock.js` (read-only) to match its real-API path. |
 | Sat night | Claude Code | M7 | `server/llm.py` (Gemini provider via google-genai, fake provider, digest builder, matplotlib trend chart sent as an image, SBAR structured output, cache fallback), per-patient + legacy summary endpoints, `tests/test_llm.py` (no network); bad-key fallback checked once against the real API. |
 | Sat night | Cursor (Grok) | frontend | Committed the clinical shell in `web/`: login, ward census, patient detail, add-patient, and admin Device & data. Built by Cursor against §19 with `mock.js` (`USE_MOCK` still on). Did not edit `server/`. |
+| Sat night | Cursor (Grok) | frontend | Pointed the same pages at the real API (`USE_MOCK` false). Alert list uses `status=unacked`; `awaiting_ack` reads "Resolved, awaiting acknowledgment"; a summary 503 says the language model is unreachable and no saved copy exists. Checked in the browser against `python -m server.app` on port 8000. |
 
 ## Prompts that worked
 
@@ -45,18 +46,19 @@ Honest record of which tool or agent produced each part of the project.
 
 ## Smaller choices (clinical frontend, Cursor)
 
-- `USE_MOCK` at the top of `web/mock.js` is the only switch. `true` uses the in-memory ward
+- `USE_MOCK` at the top of `web/mock.js` is the only switch. It is `false`: pages use same-origin
+  `fetch` with credentials and the §19 WebSockets. `true` uses the in-memory ward
   (sessionStorage stands in for the HttpOnly `bw_session` cookie, which page script cannot set).
-  `false` uses same-origin `fetch` with credentials and the §19 WebSockets.
 - Rates and waveforms are functions of the clock, so moving between pages does not reset the story.
   Demo reset clears alerts, events and rate history. "Restore the default six-bed ward" puts the
   scripted findings back. The mock does not run the Python detector, so it cannot re-raise alerts
   on its own after a plain reset.
 - Red is used only for tier 3 (the urgent count, the urgent row, the tier-3 alert, and the
   "escalated to charge nurse" line). Discharge and form errors use ink and teal.
-- Page links are the §19 paths. Until M6.5, FastAPI still serves only `/` and `/static/`, so
-  `/login`, `/patients/…` and `/admin/device` 404 on the current server. A static file server that
-  maps those paths is enough to click through the mock.
+- Page links are the §19 paths. The server serves `/login`, `/patients/…` and `/admin/device`.
+  The alert list asks for `status=unacked`. An `awaiting_ack` row says "Resolved, awaiting
+  acknowledgment" and still has Acknowledge. A 503 from a summary endpoint shows a short message
+  that the language model is unreachable and no saved copy exists.
 - "If the alarm fires at ~25 s into a 24 s apnea, it fires after the apnea ends … tell me the
   real latency" — forced a measurement against ground truth instead of a claim, which showed
   most of the delay was update cadence, not detection.

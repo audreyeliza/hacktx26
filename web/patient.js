@@ -116,7 +116,7 @@ async function openPatient(patientId, currentUser) {
     throw err;
   }
   const [alerts, events] = await Promise.all([
-    api(`/api/patients/${patientId}/alerts`),
+    api(`/api/patients/${patientId}/alerts`, { query: { status: "unacked" } }),
     api(`/api/patients/${patientId}/events`),
   ]);
   applyState(state);
@@ -170,7 +170,7 @@ function onSocket(msg, patientId) {
 async function refreshClinical(patientId) {
   const [state, alerts, events] = await Promise.all([
     api(`/api/patients/${patientId}/state`),
-    api(`/api/patients/${patientId}/alerts`),
+    api(`/api/patients/${patientId}/alerts`, { query: { status: "unacked" } }),
     api(`/api/patients/${patientId}/events`),
   ]);
   applyState(state);
@@ -249,27 +249,30 @@ function applyMonitors(m) {
 
 function setAlerts(list) {
   alertRows = list.slice().sort((a, b) => b.raised_t - a.raised_t);
-  const sig = alertRows.map((a) => `${a.id}:${a.status}:${a.escalated}:${a.ack_note || ""}`).join("|");
+  const sig = alertRows.map((a) => `${a.id}:${a.status}:${a.tier}:${a.escalated}:${a.reason}:${a.ack_note || ""}`).join("|");
   $("sum-explain").disabled = alertRows.length === 0;
   if (sig === alertSig) return;
   alertSig = sig;
   const root = $("alerts");
   if (!alertRows.length) {
-    root.innerHTML = `<p class="empty">No alerts.</p>`;
+    root.innerHTML = `<p class="empty">No unacknowledged alerts.</p>`;
     return;
   }
-  root.innerHTML = alertRows.map((a) => `
-    <article class="alert" data-tier="${a.tier}">
+  root.innerHTML = alertRows.map((a) => {
+    const waiting = a.status === "awaiting_ack";
+    const canAck = a.status === "active" || waiting;
+    return `
+    <article class="alert" data-tier="${a.tier}" data-status="${esc(a.status)}">
       <div class="alert__top">
         <span class="pill">${esc(tierName(a.tier))}</span>
         <span class="fine">${esc(fmtWhen(a.raised_t))}</span>
-        <span class="fine">${esc(a.status)}</span>
+        <span class="fine${waiting ? " awaiting" : ""}">${waiting ? "Resolved, awaiting acknowledgment" : "Active"}</span>
       </div>
       <p>${esc(a.reason)}</p>
       ${a.tier === 3 && a.escalated ? `<p class="escalated">Escalated to charge nurse</p>` : ""}
-      ${a.status === "acknowledged" ? `<p class="fine">Acknowledged by ${esc(a.acknowledged_by?.display_name || "—")} at ${esc(fmtTime(a.acknowledged_t))}${a.ack_note ? ` · ${esc(a.ack_note)}` : ""}</p>` : ""}
-      ${a.status === "active" ? `<form class="ack"><input name="note" placeholder="Note (optional)" aria-label="Acknowledgement note"><button class="primary" type="submit" data-id="${a.id}">Acknowledge</button></form>` : ""}
-    </article>`).join("");
+      ${canAck ? `<form class="ack"><input name="note" placeholder="Note (optional)" aria-label="Acknowledgement note"><button class="primary" type="submit" data-id="${a.id}">Acknowledge</button></form>` : ""}
+    </article>`;
+  }).join("");
 }
 
 function setEvents(list) {
@@ -322,7 +325,13 @@ async function runSummary(kind) {
     if (kind === "explain") $("chart-img").hidden = true;
     else await showChart();
   } catch (err) {
-    showError($("ai-error"), err);
+    if (err.status === 503) {
+      showError($("ai-error"), {
+        detail: "The summary could not be written. The language model is unreachable, and there is no saved copy yet.",
+      });
+    } else {
+      showError($("ai-error"), err);
+    }
   } finally {
     $("ai-status").textContent = "";
     $("sum-overnight").disabled = false;

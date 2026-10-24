@@ -236,6 +236,8 @@ h2 { font-size: 1.25rem; margin: 0 0 10px; }
 }
 .alert { display: block; }
 .alert__top { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.alert[data-status="awaiting_ack"] { background: #fff; box-shadow: inset 3px 0 0 var(--muted); }
+.alert[data-status="awaiting_ack"] .awaiting { color: var(--ink); font-weight: 600; }
 .alert[data-tier="3"] .pill { color: var(--red); }
 .alert[data-tier="2"] .pill { color: var(--orange); }
 .alert[data-tier="1"] .pill { color: var(--gold); }
