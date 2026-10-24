@@ -14,8 +14,9 @@ from typing import Any
 import numpy as np
 from scipy.signal import butter, detrend, find_peaks, sosfiltfilt
 
-from server.config import SignalsCfg
+from server.config import Config, SignalsCfg
 from server.ingest import CH, RingBuffer
+from server.quality import posture, segment_masks
 
 RESP_SOURCES = ("belt", "accel", "airflow")
 
@@ -186,15 +187,34 @@ def fuse(estimates: dict[str, RateEstimate], cfg: SignalsCfg,
 
 # --------------------------------------------------------------------------- vitals
 
-def compute_vitals(buffers: RingBuffer, end: int, fs: float, cfg: SignalsCfg) -> dict[str, Any]:
-    """All rates for the windows ending at sample index `end`."""
-    n_rate = int(cfg.rate_window_s * fs)
-    n_prelim = int(cfg.prelim_window_s * fs)
-    block = buffers.window(end, n_rate)
-    rates = breath_rates(block, fs, cfg)
-    fused = fuse(rates, cfg)
-    prelim = fuse(breath_rates(block[:, -n_prelim:], fs, cfg), cfg)
-    hr = heart_rate(block[CH["pulse"], -int(cfg.hr_window_s * fs):], fs, cfg)
+def compute_vitals(buffers: RingBuffer, end: int, fs: float, cfg: Config) -> dict[str, Any]:
+    """All rates, quality and posture for the windows ending at sample index `end`.
+
+    The 60 s rate window is split into 10 s quality segments; motion segments (all channels)
+    and off channels are masked as missing data before rates are estimated, so an artifact
+    from 40 s ago cannot corrupt a rate reported under a "clean" label.
+    """
+    s = cfg.signals
+    n_rate = int(s.rate_window_s * fs)
+    n_prelim = int(s.prelim_window_s * fs)
+    n_seg = int(cfg.quality.window_s * fs)
+    raw = buffers.window(end, n_rate)
+    block, segments = segment_masks(raw, fs, cfg)
+    current = segments[-1]
+    off = {c for c, st in current.channels.items() if st in ("flat", "clipped")}
+    clean = {"belt": "pressure" not in off, "airflow": "therm" not in off, "accel": True}
+
+    rates = breath_rates(block, fs, s)
+    fused = fuse(rates, s, clean)
+    prelim = fuse(breath_rates(block[:, -n_prelim:], fs, s), s, clean)
+    hr = heart_rate(block[CH["pulse"], -int(s.hr_window_s * fs):], fs, s)
+
+    label, qconf, reasons = current.label, current.confidence, list(current.reasons)
+    belt, acc = rates["belt"].bpm, rates["accel"].bpm
+    if label == "clean" and belt is not None and acc is not None and abs(belt - acc) > s.agree_bpm:
+        qconf = cfg.quality.disagree_conf
+        reasons.append(f"belt {belt:.0f} vs accel {acc:.0f}/min disagree")
+
     v: dict[str, Any] = {"idx": end}
     for name in RESP_SOURCES:
         e = rates[name]
@@ -205,5 +225,10 @@ def compute_vitals(buffers: RingBuffer, end: int, fs: float, cfg: SignalsCfg) ->
     v.update({
         "rr_fused": fused.bpm, "rr_conf": fused.confidence, "rr_sources": fused.sources,
         "flags": fused.flags, "rr_prelim": prelim.bpm, "hr": hr.bpm, "hr_conf": hr.confidence,
+        "quality": label, "quality_conf": qconf, "quality_reasons": reasons,
+        "channels": current.channels,
+        "motion": None if current.motion is None else round(current.motion, 4),
+        "clean_fraction": round(sum(g.label == "clean" for g in segments) / len(segments), 3),
+        "posture": posture(raw[:, -n_seg:], cfg),
     })
     return v

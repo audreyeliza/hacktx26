@@ -101,3 +101,15 @@ signals:
   disagree_conf_cap: 0.4      # 2+ sources and none agree: best one is shown, below the alert gate
   flat_std_counts: 40         # a channel with lower filtered std carries no breathing signal
   accel_min_breath_g: 0.0015  # minimum accel-effort std to report rr_accel
+
+quality:                      # v0 rules (AGENTS.md section 7); per 10 s segment
+  window_s: 10
+  min_valid_fraction: 0.5     # less valid data than this -> "unknown"
+  flat_raw_std_counts: 15     # dead-flat channel (must stay below an apnea's residual signal)
+  clip_margin_counts: 64      # this close to 0 or 65535 counts as clipped
+  clip_fraction: 0.2          # clipped samples above this fraction -> sensor_off
+  motion_threshold_g: 0.03    # max 2 s RMS of high-passed accel magnitude
+  disagree_conf: 0.5          # clean, but belt and accel rates disagree by > signals.agree_bpm
+  sensor_off_conf: 0.9
+  posture_min_g: 0.6          # gravity component needed to name a posture
+  model_path: data/quality_model.joblib   # v1 (milestone 9); v0 rules if missing

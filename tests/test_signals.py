@@ -3,33 +3,10 @@
 import numpy as np
 import pytest
 
-from server.ingest import CH, Ingest
-from server.signals import FusedRate, RateEstimate, breath_rates, compute_vitals, fuse
+from server.ingest import CH
+from server.signals import FusedRate, RateEstimate, breath_rates, fuse
 from server.simulator import Simulator
-
-
-def run_scenario(cfg, name, drop=None):
-    """Feed a whole scenario through ingest and compute vitals every 5 s of sample time.
-
-    Returns [(window_end_s, truth_window_mean, truth_at_end, vitals), ...]. `drop` is an
-    optional set of packet seq numbers to lose (to create gaps).
-    """
-    sim = Simulator(name, cfg)
-    ing = Ingest(cfg)
-    s = cfg.signals
-    step = int(s.rate_interval_s * ing.fs)
-    nxt, rows = step, []
-    for i, p in enumerate(sim.packets()):
-        if drop and p["seq"] in drop:
-            continue
-        ing.handle_packet(p, arrival=1000 + 0.5 * i, validated=True)
-        while ing.buffers.total >= nxt:
-            te = nxt / ing.fs
-            t = np.arange(te - s.rate_window_s, te, 1 / ing.fs)
-            rows.append((te, float(sim.true_rr(t).mean()), float(sim.true_rr(te)[0]),
-                         compute_vitals(ing.buffers, nxt, ing.fs, s)))
-            nxt += step
-    return rows
+from tests.helpers import run_scenario
 
 
 @pytest.fixture(scope="module")

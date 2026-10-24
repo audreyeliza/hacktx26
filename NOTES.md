@@ -107,6 +107,35 @@ records the reasoning and smaller choices.
 - **Dashboard tile** shows `rr_fused`, confidence, flags, per-source rates and the 30 s
   preliminary value; the trend chart plots `rr_fused` (baseline line comes with alerts, M6).
 
+## Smaller choices (M4)
+
+- **"Flat" ≠ "no breathing".** During an apnea the airflow (and, central, the effort) channel is
+  nearly flat *physiologically*. So `sensor_off` = dead-flat raw signal (std < 15 counts, below
+  the noise an attached sensor shows) or > 20 % of samples within 64 counts of a rail. A test
+  checks that obstructive, central and hypopnea windows are never labelled sensor_off or motion.
+  **Real-hardware risk:** a thermistor that slips off the face may read like a long apnea (both
+  cool toward room temperature). The rules cannot fully tell these apart; tune with recordings
+  (M9) and consider a DC-level check against the patient's breathing baseline.
+- **Which channels decide the label:** belt (pressure) and airflow (therm). The pulse sensor being
+  off only marks the pulse channel (HR → None); it does not block breathing alarms.
+- **Priority:** sensor_off, then motion, then clean. `unknown` when the segment lacks data.
+- **Motion threshold 0.03 g** (max 2 s RMS of the > 1.5 Hz accel magnitude); simulator noise is
+  ~0.0035 g, bursts ~0.35 g. Needs a check on the real MMA8452Q.
+- **Rate windows are cleaned with the quality segments:** the 60 s window is split into 10 s
+  segments; motion segments are masked on every channel, off channels on themselves, then rates
+  are computed (≤ 20 % masked is interpolated, more gives None). Without this, motion from 40 s
+  ago would corrupt a rate reported under a "clean" label. Result: on `motion`, no
+  alert-eligible rate is off by more than 2/min.
+- **Quality confidence:** clean = 1.0, or 0.5 (`disagree_conf`) when belt and accel rates differ by
+  > 3/min; motion 0.5–1.0 by energy; sensor_off 0.9. Alerts (M6) will gate on
+  `quality == "clean"` and `quality_conf ≥ 0.6`.
+- **Vitals gained** `quality`, `quality_conf`, `quality_reasons`, `channels` (per-channel ok / flat /
+  clipped / missing), `motion` (g), `clean_fraction` (of the 60 s window) and `posture`
+  (dominant gravity axis ≥ 0.6 g, else "unknown"; prone maps to "unknown").
+- **Results on simulator data:** every 10 s window fully inside a motion or sensor-off segment is
+  labelled correctly, every clean one is clean (normal 109/109, motion 42/42 clean + 7/7 motion,
+  sensor_off 46/46 clean + 36/36 off).
+
 ## Clinical app shell contract (§19) — choices made while writing it
 
 - **Both WebSockets:** a light `/ws/ward` (summaries + alert pushes) for the overview and a heavy

@@ -127,6 +127,20 @@ class SignalsCfg:
 
 
 @dataclass(frozen=True)
+class QualityCfg:
+    window_s: float
+    min_valid_fraction: float
+    flat_raw_std_counts: float
+    clip_margin_counts: float
+    clip_fraction: float
+    motion_threshold_g: float
+    disagree_conf: float
+    sensor_off_conf: float
+    posture_min_g: float
+    model_path: str
+
+
+@dataclass(frozen=True)
 class Config:
     contract: ContractCfg
     network: NetworkCfg
@@ -134,6 +148,7 @@ class Config:
     live: LiveCfg
     simulator: SimulatorCfg
     signals: SignalsCfg
+    quality: QualityCfg
 
 
 def _build(cls: type, raw: dict[str, Any], where: str) -> Any:

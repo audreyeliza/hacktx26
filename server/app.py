@@ -61,7 +61,7 @@ class State:
             self._next_idx = (total // self.step) * self.step
         done = 0
         while total >= self._next_idx and done < max_windows:
-            v = compute_vitals(ing.buffers, self._next_idx, ing.fs, self.cfg.signals)
+            v = compute_vitals(ing.buffers, self._next_idx, ing.fs, self.cfg)
             v["t"] = ing.sample_time(self._next_idx)
             self.vitals_seq += 1
             self.vitals = v
