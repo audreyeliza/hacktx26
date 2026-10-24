@@ -26,6 +26,7 @@ Honest record of which tool or agent produced each part of the project.
 | Sat evening | Claude Code | M5 | `server/events.py` (Hilbert-envelope state machine at 1 s, rolling baseline, obstructive/central/mixed/hypopnea, final + provisional lags), `server/pipeline.py`, events on API/WebSocket/dashboard, tests scored against ground truth over several seeds. Two iterations driven by per-second traces (baseline freeze, window-edge leakage). |
 | Sat evening | Cursor (Grok) | frontend | Clinical shell in `web/` against §19: `mock.js` (`USE_MOCK`), login, ward census, patient detail, add-patient, admin Device & data. Six scripted beds with live rates and waveforms. Did not edit `server/`. |
 | Sat evening | Claude Code | M6 | `server/alerts.py` (tiers, persistence, baseline, trend, apnea + cluster, sensor check, cooldown, latching, escalation; naive comparison monitor), `server/store.py` (SQLite), bedside LED/buzzer command over UDP or serial, alerts API + WebSocket messages, tests incl. demo acceptance. Committed only backend files: Cursor's agent had uncommitted §19 frontend work in `web/`, left untouched. |
+| Sat night | Claude Code | follow-ups | `awaiting_ack` alert status; 1 s apnea watch + 1 s provisional lag (tier 3 at 21–22 s into an apnea, measured); demo apneas 32 s / 26 s; §19 Alert shape updated. |
 
 ## Prompts that worked
 
@@ -53,3 +54,6 @@ Honest record of which tool or agent produced each part of the project.
 - Page links are the §19 paths. Until M6.5, FastAPI still serves only `/` and `/static/`, so
   `/login`, `/patients/…` and `/admin/device` 404 on the current server. A static file server that
   maps those paths is enough to click through the mock.
+- "If the alarm fires at ~25 s into a 24 s apnea, it fires after the apnea ends … tell me the
+  real latency" — forced a measurement against ground truth instead of a claim, which showed
+  most of the delay was update cadence, not detection.

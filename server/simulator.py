@@ -120,7 +120,8 @@ def build_scenario(name: str, rng: np.random.Generator, residual: float,
         ]
     if name == "demo":
         # normal -> motion -> opioid decline (to 5/min so tier 3 is reachable) -> recovery
-        # -> obstructive (one >= 20 s) -> central
+        # -> obstructive (one 32 s) -> central (one 26 s). The long apneas are well past 20 s so
+        # the tier-3 alarm (~21-22 s into an apnea) visibly fires while the apnea is still going.
         return (
             [_normal(180)]
             + _motion_block(rng, 4)
@@ -130,8 +131,8 @@ def build_scenario(name: str, rng: np.random.Generator, residual: float,
                 Phase(30, rr=(5, 15), amp=(0.5, 1.0)),
                 _normal(60),
             ]
-            + apneas("obstructive", [14.0, 24.0, 16.0])
-            + apneas("central", [22.0, 15.0])
+            + apneas("obstructive", [14.0, 32.0, 16.0])
+            + apneas("central", [26.0, 15.0])
         )
     raise ValueError(f"unknown scenario {name!r}; choose from {SCENARIO_NAMES}")
 

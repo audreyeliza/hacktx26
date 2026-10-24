@@ -264,6 +264,9 @@ Rules (all values in `config.yaml`; demo values, not clinical):
 - `rr_fused` dropped ≥ 30% from patient baseline (median of first 10 min, or since admission)
   over ≤ 30 min → tier 2 "declining trend".
 - Any apnea ≥ 20 s → tier 3. Apnea 10–20 s → tier 1; ≥ 5 apneas in 15 min → tier 2.
+  (Decided: the tier-3 alarm fires from the apnea *in progress*; an apnea watch runs every 1 s,
+  so the alarm fires ~1–2 s after an apnea passes 20 s, i.e. 21–22 s into it. The demo's long
+  apneas are 32 s and 26 s so this is visibly mid-apnea.)
 - Sensor off for > 60 s → tier 1 "check sensor" (not an emergency).
 - Cooldown: same alert type not re-raised within 120 s unless tier increases.
 - Acknowledge endpoint clears the buzzer and records who/when.
@@ -590,6 +593,7 @@ median amplitude during the event as % of baseline.
   "status": "active",
   "raised_t": 1792877722.5,
   "updated_t": 1792877722.5,
+  "cleared_t": null,
   "escalated": false,
   "escalated_t": null,
   "acknowledged_by": null,
@@ -598,8 +602,17 @@ median amplitude during the event as % of baseline.
 }
 ```
 `kind` ∈ `"rr_low" | "rr_trend" | "apnea" | "apnea_cluster" | "sensor_check"`.
-`tier` 0–3 (§8). `status` ∈ `"active" | "acknowledged" | "resolved"`. `escalated` becomes true
-when a tier-3 alert is not acknowledged within 60 s ("charge nurse"). `acknowledged_by` is a
+`tier` 0–3 (§8). `status` ∈ `"active" | "awaiting_ack" | "acknowledged" | "resolved"`:
+- `active` — the condition is present (tier 3: buzzer on).
+- `awaiting_ack` — **resolved, awaiting acknowledgment**: a latched tier 2–3 alert whose
+  condition has been clear for 30 s. Still unacknowledged, so it still counts toward the
+  patient's tier and still escalates, but the buzzer stops. Show it differently from an active
+  alarm. If the condition returns it goes back to `active` (same alert id).
+- `acknowledged` — a user acknowledged it (from `active` or `awaiting_ack`).
+- `resolved` — a tier 0–1 alert whose condition cleared (tier 0 entries are created resolved).
+
+`cleared_t` is when the condition cleared (`null` while present). `escalated` becomes true when
+a tier-3 alert is not acknowledged within 60 s ("charge nurse"). `acknowledged_by` is a
 **User** or `null`.
 
 **MonitorCounts** (naive vs smart, §8)
@@ -629,7 +642,8 @@ when a tier-3 alert is not acknowledged within 60 s ("charge nurse"). `acknowled
   "updated_t": 1792877820.0
 }
 ```
-`tier` is the highest tier among the patient's **active (unacknowledged)** alerts, else 0.
+`tier` is the highest tier among the patient's **unacknowledged** alerts (status `active` or
+`awaiting_ack`), else 0. `unacked_alerts` counts both.
 `tier_reason` is that alert's `reason` (or `null`). `last_event` is `null` if none.
 
 **PatientState** (patient detail page)
@@ -641,7 +655,7 @@ when a tier-3 alert is not acknowledged within 60 s ("charge nurse"). `acknowled
   "tier": 2,
   "tier_reason": "…",
   "baseline": {"rr": 15.1, "since_t": 1792870000.0, "n": 120},
-  "active_alerts": [ { "...": "Alert" } ],
+  "active_alerts": [ { "...": "Alert (unacknowledged: active or awaiting_ack)" } ],
   "recent_events": [ { "...": "Event (newest first, max 10)" } ],
   "monitors": { "...": "MonitorCounts" }
 }
@@ -716,7 +730,7 @@ PatientCreate:
 | `GET /api/patients/{id}/state` | — | `200 PatientState` |
 | `GET /api/patients/{id}/vitals` | `?since_t=&limit=720` | `200 {"vitals": [Vitals]}` oldest first (trend chart; default last 60 min) |
 | `GET /api/patients/{id}/events` | `?since_t=&limit=100` | `200 {"events": [Event]}` newest first |
-| `GET /api/patients/{id}/alerts` | `?status=active\|all` (default all) `&since_t=&limit=100` | `200 {"alerts": [Alert]}` newest first |
+| `GET /api/patients/{id}/alerts` | `?status=active\|awaiting_ack\|unacked\|all` (default all; `unacked` = active + awaiting_ack) `&since_t=&limit=100` | `200 {"alerts": [Alert]}` newest first |
 | `POST /api/patients/{id}/alerts/{alert_id}/ack` | `{"note": "Patient roused, RR 12"}` (note optional) | `200 Alert` (`status: "acknowledged"`, `acknowledged_by` = current user); `404`; acknowledging twice returns the alert unchanged |
 | `POST /api/patients/{id}/summary/explain/{alert_id}` | — | `200 Summary` |
 | `POST /api/patients/{id}/summary/overnight` | — | `200 Summary` |

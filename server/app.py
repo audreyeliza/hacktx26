@@ -42,7 +42,7 @@ class State:
         self.store = Store(cfg.store.path)
         self.ingest = Ingest(cfg)
         self.started = time.time()
-        self.step = int(cfg.signals.rate_interval_s * self.ingest.fs)  # samples between updates
+        self.step = int(cfg.events.watch_interval_s * self.ingest.fs)  # samples between ticks (1 s)
         self.vitals: dict[str, Any] | None = None
         self.vitals_seq = 0
         # (vitals_seq, sample time, rr_fused) for the trend chart
@@ -56,8 +56,9 @@ class State:
         self._next_idx = self.step
         self._generation = self.ingest.generation
 
-    def process_pending(self, max_windows: int = 10) -> int:
-        """Compute vitals for every 5 s boundary of sample time the buffers have passed."""
+    def process_pending(self, max_windows: int = 50) -> int:
+        """Tick the pipeline at every 1 s boundary of sample time the buffers have passed
+        (apnea watch every second, vitals every 5 s)."""
         ing = self.ingest
         if ing.generation != self._generation:
             self._generation = ing.generation
@@ -72,16 +73,17 @@ class State:
             self._next_idx = (total // self.step) * self.step
         done = 0
         while total >= self._next_idx and done < max_windows:
-            res = self.pipeline.step(ing.buffers, self._next_idx, ing.sample_time)
-            v = res.vitals
+            res = self.pipeline.tick(ing.buffers, self._next_idx, ing.sample_time)
             for e in res.events:
                 self.event_seq += 1
                 self.event_log.append((self.event_seq, public_event(e)))
             for a in res.alerts:
                 self._log_alert(a)
-            self.vitals_seq += 1
-            self.vitals = v
-            self.trend.append((self.vitals_seq, v["t"], v["rr_fused"]))
+            if res.vitals is not None:
+                v = res.vitals
+                self.vitals_seq += 1
+                self.vitals = v
+                self.trend.append((self.vitals_seq, v["t"], v["rr_fused"]))
             self._next_idx += self.step
             done += 1
         return done

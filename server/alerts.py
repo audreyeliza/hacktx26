@@ -5,8 +5,10 @@ Deterministic rules only — the LLM never decides whether to alarm (design rule
 factors are never an input here (design rule 8).
 
 Policy choices beyond §8 (NOTES.md, M6):
-- Alerts at or above `latch_tier` (2) stay active until acknowledged even if the condition
-  clears; lower tiers resolve on their own after the condition has been clear for `clear_s`.
+- Alerts at or above `latch_tier` (2) stay until acknowledged even if the condition clears:
+  after it has been clear for `clear_s` they move to status `awaiting_ack` ("resolved, awaiting
+  acknowledgment": still counted in the patient's tier and still escalated, but the buzzer
+  stops); if the condition returns they go back to `active`. Lower tiers resolve on their own.
 - A step that fails the quality gate resets a condition's persistence timer (conservative).
 - "Sensor off > 60 s -> tier 1" is the one rule that fires on non-clean data: it is about the
   device, not the patient.
@@ -81,6 +83,7 @@ class AlertEngine:
         return {"rr": round(rr, 1), "since_t": self.start_t, "n": len(self.baseline_vals)}
 
     def active_alerts(self) -> list[dict[str, Any]]:
+        """Unacknowledged alerts (status active or awaiting_ack), highest tier first."""
         return sorted((self.alerts[i] for i in self.active.values()), key=lambda x: (-x["tier"], -x["raised_t"]))
 
     def tier(self) -> tuple[int, str | None]:
@@ -88,7 +91,7 @@ class AlertEngine:
         return (act[0]["tier"], act[0]["reason"]) if act else (0, None)
 
     def buzzer(self) -> bool:
-        return any(a["tier"] >= 3 for a in self.active_alerts())
+        return any(a["tier"] >= 3 and a["status"] == "active" for a in self.active_alerts())
 
     def counts(self, naive_alarms: int) -> dict[str, Any]:
         hours = max((self.last_t or 0) - (self.start_t or 0), 1.0) / 3600.0
@@ -109,7 +112,8 @@ class AlertEngine:
     def _new(self, kind: str, tier: int, reason: str, t: float, status: str = "active") -> dict[str, Any]:
         alert = {
             "id": None, "patient_id": self.patient_id, "kind": kind, "tier": tier, "reason": reason,
-            "status": status, "raised_t": t, "updated_t": t, "escalated": False, "escalated_t": None,
+            "status": status, "raised_t": t, "updated_t": t, "cleared_t": None,
+            "escalated": False, "escalated_t": None,
             "acknowledged_by": None, "acknowledged_t": None, "ack_note": None,
         }
         self._save(alert)
@@ -120,10 +124,16 @@ class AlertEngine:
         aid = self.active.get(kind)
         if aid is not None:
             alert = self.alerts[aid]
+            changed = False
+            if alert["status"] == "awaiting_ack":        # condition is back
+                alert.update(status="active", cleared_t=None, updated_t=t)
+                changed = True
             if tier > alert["tier"] or (refresh and tier == alert["tier"] and reason != alert["reason"]):
                 if tier > alert["tier"]:
                     self.smart_alarms += 1
                 alert.update(tier=max(tier, alert["tier"]), reason=reason, updated_t=t)
+                changed = True
+            if changed:
                 self._save(alert)
             self.clear_since[kind] = None
             return
@@ -147,20 +157,25 @@ class AlertEngine:
         self._new(kind, 0, reason, t, status="resolved")
 
     def _condition_clear(self, kind: str, t: float) -> None:
-        """Condition for `kind` is clear this step: resolve a non-latching alert after clear_s."""
+        """Condition for `kind` is clear now. After clear_s: a non-latching alert resolves; a
+        latching one moves to awaiting_ack (it stays until acknowledged)."""
         aid = self.active.get(kind)
         if aid is None:
             return
         alert = self.alerts[aid]
-        if alert["tier"] >= self.a.latch_tier:
+        if alert["status"] != "active":
             return
         start = self.clear_since.get(kind) or t
         self.clear_since[kind] = start
-        if t - start >= self.a.clear_s:
-            alert.update(status="resolved", updated_t=t)
+        if t - start < self.a.clear_s:
+            return
+        if alert["tier"] >= self.a.latch_tier:
+            alert.update(status="awaiting_ack", cleared_t=t, updated_t=t)
+        else:
+            alert.update(status="resolved", cleared_t=t, updated_t=t)
             del self.active[kind]
             self.cool[kind] = _Cool(t, alert["tier"])
-            self._save(alert)
+        self._save(alert)
 
     def _held(self, key: str, cond: bool, t: float) -> float:
         """How long (s) a condition has held on consecutive steps; 0 when it does not hold."""
@@ -175,7 +190,7 @@ class AlertEngine:
         alert = self.alerts.get(alert_id)
         if alert is None:
             return None
-        if alert["status"] != "active":
+        if alert["status"] not in ("active", "awaiting_ack"):
             return alert
         alert.update(status="acknowledged", acknowledged_by=user or PRE_AUTH_USER, acknowledged_t=t,
                      ack_note=note, updated_t=t)
@@ -190,13 +205,30 @@ class AlertEngine:
         return out
 
     # ---- the rules
-    def update(self, v: dict[str, Any], ongoing: dict[str, Any] | None, new_events: list[dict[str, Any]],
-               t: float) -> list[dict[str, Any]]:
-        """Apply every rule for one 5 s step. Returns alerts created or changed this step."""
-        a = self.a
+    def _clock(self, t: float) -> None:
         if self.start_t is None:
             self.start_t = t
-        self.last_t = t
+        self.last_t = max(t, self.last_t or t)
+
+    def update(self, v: dict[str, Any], ongoing: dict[str, Any] | None, new_events: list[dict[str, Any]],
+               t: float) -> list[dict[str, Any]]:
+        """Rate rules and apnea rules for one step (convenience for tests)."""
+        changed = self.update_rates(v, t)
+        quality_ok = v.get("quality") == "clean" and (v.get("quality_conf") or 0) >= self.a.gate_quality_conf
+        return changed + self.update_apnea(ongoing, new_events, quality_ok, t)
+
+    def update_apnea(self, ongoing: dict[str, Any] | None, new_events: list[dict[str, Any]],
+                     quality_ok: bool, t: float) -> list[dict[str, Any]]:
+        """Apnea rules; called every second by the apnea watch. Returns changed alerts."""
+        self._clock(t)
+        self._rule_apnea(ongoing, new_events, quality_ok, t)
+        self._escalate(t)
+        return self.take_changes()
+
+    def update_rates(self, v: dict[str, Any], t: float) -> list[dict[str, Any]]:
+        """Rate, trend and sensor rules for one 5 s vitals step. Returns changed alerts."""
+        a = self.a
+        self._clock(t)
         rr = v.get("rr_fused")
         quality_ok = v.get("quality") == "clean" and (v.get("quality_conf") or 0) >= a.gate_quality_conf
         rr_ok = quality_ok and rr is not None and (v.get("rr_conf") or 0) >= a.gate_rr_conf
@@ -212,7 +244,6 @@ class AlertEngine:
 
         self._rule_rr_low(v, rr, rr_ok, base, t)
         self._rule_trend(rr, rr_ok, base, t)
-        self._rule_apnea(ongoing, new_events, quality_ok, t)
         self._rule_sensor(v, t)
         self._escalate(t)
         return self.take_changes()
@@ -262,8 +293,9 @@ class AlertEngine:
     def _rule_apnea(self, ongoing: dict[str, Any] | None, new_events: list[dict[str, Any]],
                     quality_ok: bool, t: float) -> None:
         a = self.a
+        in_progress = bool(ongoing and ongoing.get("apnea"))
         # in progress: tier 3 as soon as an apnea reaches 20 s, before the final event is logged
-        if ongoing and ongoing.get("apnea") and ongoing["duration_s"] >= a.apnea_tier3_s and quality_ok:
+        if in_progress and ongoing["duration_s"] >= a.apnea_tier3_s and quality_ok:
             if self.alerted_apnea_start is None or abs(ongoing["start_t"] - self.alerted_apnea_start) > a.apnea_tier1_s:
                 self.alerted_apnea_start = ongoing["start_t"]
                 self._raise("apnea", 3, f"Apnea in progress for {ongoing['duration_s']:.0f} s "
@@ -285,6 +317,10 @@ class AlertEngine:
             mix = ", ".join(f"{k} {n}" for k, n in kinds.items() if n)
             self._raise("apnea_cluster", 2, f"{len(self.apnea_times)} apneas in the last "
                         f"{a.cluster_window_s / 60:.0f} min ({mix})", t, refresh=True)
+        if not in_progress and not new_events:
+            self._condition_clear("apnea", t)
+        if len(self.apnea_times) < a.cluster_count:
+            self._condition_clear("apnea_cluster", t)
 
     def _rule_sensor(self, v: dict[str, Any], t: float) -> None:
         held = self._held("sensor_off", v.get("quality") == "sensor_off", t)
@@ -296,7 +332,7 @@ class AlertEngine:
             self._condition_clear("sensor_check", t)
 
     def _escalate(self, t: float) -> None:
-        for alert in self.active_alerts():
+        for alert in self.active_alerts():   # active or awaiting_ack: nobody has acknowledged it
             if alert["tier"] < 3 or alert["escalated"]:
                 continue
             start = self.tier3_since.setdefault(alert["id"], t)

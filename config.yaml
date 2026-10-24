@@ -117,7 +117,8 @@ quality:                      # v0 rules (AGENTS.md section 7); per 10 s segment
 events:                       # AGENTS.md section 7 (Events); amplitudes relative to baseline
   point_s: 1.0                # resolution of the event state machine
   lag_s: 12.0                 # a second is final this far behind the newest sample (edge effects)
-  provisional_lag_s: 3.0      # seconds up to here are evaluated provisionally for "apnea in progress"
+  provisional_lag_s: 1.0      # seconds up to here are evaluated provisionally for "apnea in progress"
+  watch_interval_s: 1.0       # the apnea watch runs this often (vitals stay every 5 s)
   env_smooth_s: 1.0           # moving average on the Hilbert envelope
   edge_pad_s: 10              # reflective padding before filtering / Hilbert
   baseline_window_s: 120      # baseline = median amplitude over this much normal, valid data

@@ -213,6 +213,28 @@ records the reasoning and smaller choices.
   `/api/state` now has `tier`, `tier_reason`, `baseline`, `active_alerts`, `monitors`,
   `bedside`; `/ws/live` sends `alert` messages; `GET /api/alerts`, `POST /api/alerts/{id}/ack`.
 
+## Follow-ups after M6 (approved decisions 1, 2, 4)
+
+- **`awaiting_ack` status** ("resolved, awaiting acknowledgment"): a latched tier 2–3 alert
+  whose condition has been clear for 30 s. Still counted in the tier and still escalated (nobody
+  acknowledged it), but the buzzer stops; condition back → `active` again, same id. New field
+  `cleared_t`. `GET …/alerts?status=unacked` returns active + awaiting_ack. §19.3 updated —
+  **Cursor: the dashboard should show `awaiting_ack` differently from `active`.**
+  For apnea alerts the condition is "an apnea is in progress"; for clusters, "≥ 5 apneas in
+  the last 15 min".
+- **Apnea alarm latency (measured):** an apnea watch now runs every **1 s** (event detection +
+  apnea rules; vitals stay every 5 s) and the provisional lag is **1 s** (was 3 s; edge
+  distortion only makes airflow look higher, so a short lag cannot create a false alarm). The
+  tier-3 alarm fires **21.0–22.1 s into an apnea, i.e. +1.0 to +2.1 s after the 20 s mark**
+  (1 s provisional lag + up to 1 s cadence + onset measured at the 70 % crossing), across 6
+  seeded runs. Apneas of 20–22 s therefore alarm ~1 s after they end; that is the floor for
+  airflow-based detection here.
+- **Demo apneas lengthened**: obstructive 24 → **32 s**, central 22 → **26 s**; the tier-3 alarm
+  fires at 21.8 s and 21.6 s, well before they end (test asserts ≥ 4 s before the end).
+- `pytest -q` from the repo root now also collects `tools/sensor_test.py` (an untracked
+  MicroPython script that imports `machine`) and fails; run `pytest -q tests`, or add
+  `testpaths = tests` to a pytest config (not done: outside server/ and tests/).
+
 ## Clinical app shell contract (§19) — choices made while writing it
 
 - **Both WebSockets:** a light `/ws/ward` (summaries + alert pushes) for the overview and a heavy

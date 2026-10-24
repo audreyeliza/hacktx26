@@ -117,10 +117,13 @@ class Store:
 
     def alerts(self, patient_id: str, status: str | None = None, since_t: float | None = None,
                limit: int = 100) -> list[dict[str, Any]]:
+        """`status`: None/"all", one status, or "unacked" (active + awaiting_ack)."""
+        statuses = {None: None, "all": None, "unacked": ("active", "awaiting_ack")}.get(status, (status,))
+        status_sql = "" if statuses is None else f" AND status IN ({','.join('?' * len(statuses))})"
         rows = self.db.execute(
-            "SELECT data FROM alerts WHERE patient_id = ? AND (? IS NULL OR status = ?)"
+            "SELECT data FROM alerts WHERE patient_id = ?" + status_sql +
             " AND (? IS NULL OR raised_t >= ?) ORDER BY raised_t DESC, id DESC LIMIT ?",
-            (patient_id, status, status, since_t, since_t, limit)).fetchall()
+            (patient_id, *(statuses or ()), since_t, since_t, limit)).fetchall()
         return [json.loads(r["data"]) for r in rows]
 
     def alert(self, alert_id: int) -> dict[str, Any] | None:

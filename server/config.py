@@ -145,6 +145,7 @@ class EventsCfg:
     point_s: float
     lag_s: float
     provisional_lag_s: float
+    watch_interval_s: float
     env_smooth_s: float
     edge_pad_s: float
     baseline_window_s: float

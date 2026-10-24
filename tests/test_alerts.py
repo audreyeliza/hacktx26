@@ -52,14 +52,19 @@ def test_demo_reaches_tier3_on_decline(demo):
     assert any(a["kind"] == "rr_trend" and a["tier"] == 2 for a in alerts)
 
 
-def test_demo_reaches_tier3_on_long_apnea(demo):
+@pytest.mark.parametrize("kind", ["obstructive", "central"])
+def test_demo_tier3_fires_mid_apnea(demo, kind):
+    """The tier-3 alarm fires while the long apnea is still in progress, within ~2 s of its
+    20 s mark (1 s apnea watch + 1 s provisional lag)."""
     _, _, alerts, _, sim, _ = demo
-    long = next(t for t in sim.labels()["events"] if t["duration_s"] >= 20)
-    tier3 = [a for a in alerts if a["kind"] == "apnea" and a["tier"] == 3
-             and long["start_s"] <= a["changed_s"] <= long["end_s"] + 15]
-    assert tier3
-    # raised while the apnea was still in progress or right after it ended, not 12 s+ later
-    assert tier3[0]["changed_s"] <= long["start_s"] + 30
+    long = next(t for t in sim.labels()["events"] if t["duration_s"] >= 25 and t["type"] == kind)
+    tier3 = [a for a in alerts if a["kind"] == "apnea" and a["tier"] == 3 and a["status"] == "active"
+             and a["reason"].startswith("Apnea in progress")
+             and long["start_s"] <= a["changed_s"] <= long["end_s"]]
+    assert tier3, "tier 3 must fire during the apnea"
+    into = tier3[0]["changed_s"] - long["start_s"]
+    assert 20.0 <= into <= 23.0, into
+    assert long["end_s"] - tier3[0]["changed_s"] >= 4.0   # clearly before it ends
 
 
 def test_demo_smart_total_well_below_naive(demo):
@@ -185,6 +190,37 @@ def test_latching_ack_and_escalation(cfg):
     assert acked["ack_note"] == "roused" and not c.e.buzzer() and "rr_low" not in c.e.active
     assert c.e.tier()[0] == 2           # the separate declining-trend alert is still latched
     assert c.e.acknowledge(alert["id"], None, None, c.t + 5) == acked   # idempotent
+
+
+def test_latched_alert_awaits_acknowledgment(cfg):
+    a = cfg.alerts
+    c = Clock(cfg, baseline_rr=11.0).run(vit(7.0), 65)     # rr_low tier 2 (latching); 36 % drop also trend
+    alert = c.e.alerts[c.e.active["rr_low"]]
+    assert alert["tier"] == 2 and alert["status"] == "active" and alert["cleared_t"] is None
+    c.run(vit(11.0), a.clear_s + 5)                         # condition clears
+    assert alert["status"] == "awaiting_ack" and alert["cleared_t"] is not None
+    assert c.e.tier()[0] == 2                               # still shown on the tile
+    assert any(x["status"] == "awaiting_ack" and x["id"] == alert["id"] for x in c.changes)
+    c.run(vit(7.0), 65)                                     # condition back (persisted again): same alert
+    assert alert["status"] == "active" and alert["cleared_t"] is None
+    assert c.e.active["rr_low"] == alert["id"]
+    c.run(vit(11.0), a.clear_s + 5)
+    acked = c.e.acknowledge(alert["id"], None, None, c.t)
+    assert acked["status"] == "acknowledged" and "rr_low" not in c.e.active
+
+
+def test_awaiting_ack_tier3_stops_buzzer_but_still_escalates(cfg):
+    a = cfg.alerts
+    c = Clock(cfg)
+    ongoing = {"type": "central", "apnea": True, "start_t": c.t + 1, "duration_s": 21.0,
+               "confidence": 0.9, "posture": "supine"}
+    c.run(vit(), 5, ongoing=ongoing)
+    alert = c.e.active_alerts()[0]
+    assert c.e.buzzer()
+    c.run(vit(), a.clear_s + 5)                             # apnea over
+    assert alert["status"] == "awaiting_ack" and not c.e.buzzer() and c.e.tier()[0] == 3
+    c.run(vit(), a.escalate_s)
+    assert alert["escalated"] is True
 
 
 def test_apnea_rules(cfg):

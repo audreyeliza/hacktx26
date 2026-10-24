@@ -61,9 +61,8 @@ def test_demo_long_apnea_reported_while_ongoing(cfg):
     long = next(t for t in sim.labels()["events"] if t["duration_s"] >= 20 and t["type"] == "obstructive")
     first = next(te for te, *_, og in rows if og and og["apnea"] and og["duration_s"] >= 20)
     logged = next(e for e in events if e["start_s"] < long["end_s"] and long["start_s"] < e["end_s"])
-    assert first <= long["start_s"] + 30
-    assert first < logged["end_s"] + cfg.events.lag_s
-    assert logged["type"] == "obstructive" and logged["duration_s"] >= 20
+    assert first < long["end_s"]                      # visible while the apnea is still going
+    assert logged["type"] == "obstructive" and logged["duration_s"] >= 30
 
 
 def _breathing_block(fs, seconds, rng, airflow_scale, effort_scale):
@@ -82,10 +81,10 @@ def _breathing_block(fs, seconds, rng, airflow_scale, effort_scale):
 def _run_block(cfg, block, fs=50.0):
     rb = RingBuffer(len(CHANNELS), block.shape[1])
     pipe = Pipeline(cfg, fs, "p-test")
-    events, step = [], int(cfg.signals.rate_interval_s * fs)
+    events, step = [], int(cfg.events.watch_interval_s * fs)
     for end in range(step, block.shape[1] + 1, step):
         rb.append(block[:, end - step:end])
-        events += pipe.step(rb, end, lambda i: i / fs).events
+        events += pipe.tick(rb, end, lambda i: i / fs).events
     return events
 
 
