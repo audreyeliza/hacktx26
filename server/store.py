@@ -150,15 +150,21 @@ class Store:
             (patient["id"], num, patient["status"], patient["bed"], json.dumps(patient)))
         self.db.commit()
 
+    @staticmethod
+    def _patient(data: str) -> dict[str, Any]:
+        p = json.loads(data)
+        p.setdefault("calibration", None)   # records from before "calibrate supine" existed
+        return p
+
     def patient(self, patient_id: str) -> dict[str, Any] | None:
         row = self.db.execute("SELECT data FROM patients WHERE id = ?", (patient_id,)).fetchone()
-        return json.loads(row["data"]) if row else None
+        return self._patient(row["data"]) if row else None
 
     def patients(self, status: str | None = None) -> list[dict[str, Any]]:
         rows = self.db.execute(
             "SELECT data FROM patients WHERE (? IS NULL OR status = ?) ORDER BY num",
             (status, status)).fetchall()
-        return [json.loads(r["data"]) for r in rows]
+        return [self._patient(r["data"]) for r in rows]
 
     def delete_all_patients(self) -> None:
         for table in ("patients", "vitals", "events", "alerts", "llm_cache"):

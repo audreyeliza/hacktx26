@@ -142,6 +142,9 @@ class QualityCfg:
     disagree_conf: float
     sensor_off_conf: float
     posture_min_g: float
+    calib_window_s: float
+    calib_max_std_g: float
+    calib_g_range: tuple[float, float]
     float_band_counts: tuple[float, float]
     float_min_std_counts: float
     float_hf_hz: float

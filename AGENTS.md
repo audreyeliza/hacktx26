@@ -412,6 +412,10 @@ Work in this order. Each milestone must pass its check before moving on. Commit 
     - **"Calibrate supine" control:** a dashboard button (and `POST /api/calibrate/supine`) records
       the mean gravity vector over a few seconds while the patient lies flat; posture is then
       computed relative to that calibration (rotation that maps the recorded vector to supine).
+      **Built:** 3 s window, refused (409) when moving / no data / implausible |g|; stored on the
+      patient (`calibration`), cleared on device change. Limitation: lying flat only reveals the
+      patch's tilt; a rotation of the patch within the chest plane (which swaps left/right) would
+      need a second "calibrate left side" step.
       Before calibration, use the default axis convention: x = patient's left, y = toward head,
       z = out of the chest (supine az ≈ +1 g, left ax ≈ −1 g, right ax ≈ +1 g, upright ay ≈ +1 g).
 11. **Deployment prep (Pi).** `deploy/pi_setup.sh` (run on the Pi in `~/hacktx` as `audreybolyard`:
@@ -549,10 +553,12 @@ sensor_off | demo`.
   "notes": "Post-op day 1, PCA morphine",
   "status": "admitted",
   "admitted_t": 1792870000.0,
-  "discharged_t": null
+  "discharged_t": null,
+  "calibration": null
 }
 ```
-`id` is server-assigned (`p` + integer). `status` ∈ `"admitted" | "discharged"`. `bed` is a
+`calibration` is `null` or `{"gravity": [gx, gy, gz], "samples": 150, "calibrated_t": …}` (set by
+"calibrate supine", cleared when the device changes). `id` is server-assigned (`p` + integer). `status` ∈ `"admitted" | "discharged"`. `bed` is a
 string ("4", "4B").
 
 **DeviceStatus** (runtime status of the patient's input)
@@ -765,6 +771,9 @@ PatientCreate:
 | `POST /api/patients/{id}/summary/overnight` | — | `200 Summary` |
 | `POST /api/patients/{id}/summary/handoff` | — | `200 Summary` (with `sbar`) |
 | `GET /api/patients/{id}/summary/chart.png` | — | `200 image/png` (the trend chart sent to Gemini) |
+| `POST /api/patients/{id}/calibrate/supine` | `{}` (patient lying flat and still) | `200 {"patient_id", "gravity": [gx, gy, gz], "samples", "calibrated_t", "posture_now"}`; `409` if < 3 s of accelerometer data, the patient is moving, or \|g\| is implausible. nurse/admin |
+| `DELETE /api/patients/{id}/calibration` | — | `200 Patient` (`calibration: null`). nurse/admin |
+| `POST /api/calibrate/supine` | `{}` | same as above for the patient wearing the live device (the M10 path) |
 
 **Admin: device & data** (existing endpoints keep their paths and bodies; admin-only)
 

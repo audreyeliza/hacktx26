@@ -17,12 +17,14 @@ import time
 from collections import deque
 from typing import Annotated, Any, Literal, Union
 
+import numpy as np
 from pydantic import BaseModel, Field
 
 from server.config import Config
-from server.ingest import Ingest, SimulatorSource, Stream
+from server.ingest import CH, Ingest, SimulatorSource, Stream
 from server.pipeline import Pipeline, public_event
 from server.public_demo import simulated_device
+from server.quality import posture, supine_rotation
 from server.simulator import SCENARIO_NAMES, Simulator
 from server.store import Store
 
@@ -107,6 +109,8 @@ class PatientRuntime:
 
     def _fresh(self) -> None:
         self.pipeline = Pipeline(self.cfg, self.fs, self.id, self.ward.store)
+        cal = self.patient.get("calibration")
+        self.pipeline.rotation = supine_rotation(np.array(cal["gravity"])) if cal else None
         self.tick = self.pipeline.watch_step
         self.next_idx = self.tick
         self.stream_generation = self.stream.generation
@@ -187,6 +191,38 @@ class PatientRuntime:
 
     def now_t(self) -> float:
         return self.stream.sample_time(self.stream.buffers.total) or time.time()
+
+    def calibrate_supine(self) -> dict[str, Any]:
+        """"Calibrate supine" (M10): average gravity over the last few seconds while the patient
+        lies flat; posture is then computed relative to it. Refuses moving or missing data."""
+        q = self.cfg.quality
+        n = int(q.calib_window_s * self.fs)
+        acc = self.stream.buffers.window(self.stream.buffers.total, n)[[CH["ax"], CH["ay"], CH["az"]]]
+        valid = ~np.isnan(acc).any(axis=0)
+        if valid.sum() < 0.9 * n:
+            raise WardError(409, f"need {q.calib_window_s:.0f} s of accelerometer data from this patient's "
+                                 "device; is it connected?")
+        acc = acc[:, valid]
+        if float(acc.std(axis=1).max()) > q.calib_max_std_g:
+            raise WardError(409, "the patient seems to be moving; lie still and flat, then try again")
+        g = acc.mean(axis=1)
+        mag = float(np.linalg.norm(g))
+        if not q.calib_g_range[0] <= mag <= q.calib_g_range[1]:
+            raise WardError(409, f"measured gravity {mag:.2f} g is implausible; check the accelerometer")
+        calibration = {"gravity": [round(float(x), 4) for x in g], "samples": int(valid.sum()),
+                       "calibrated_t": self.now_t()}
+        self.patient = {**self.patient, "calibration": calibration}
+        self.ward.store.save_patient(self.patient)
+        self.pipeline.rotation = supine_rotation(g)
+        block = self.stream.buffers.window(self.stream.buffers.total, n)
+        return {"patient_id": self.id, **calibration,
+                "posture_now": posture(block, self.cfg, self.pipeline.rotation)}
+
+    def clear_calibration(self) -> dict[str, Any]:
+        self.patient = {**self.patient, "calibration": None}
+        self.ward.store.save_patient(self.patient)
+        self.pipeline.rotation = None
+        return self.patient
 
     def acknowledge(self, alert_id: int, user: dict[str, Any] | None, note: str | None) -> dict[str, Any] | None:
         alert = self.pipeline.alerts.acknowledge(alert_id, user, note, self.now_t())
@@ -353,7 +389,7 @@ class Ward:
         patient = {
             "id": self.store.next_patient_id(), "name": body.name, "bed": body.bed,
             "risk_factors": body.risk_factors.model_dump(), "device": device, "notes": body.notes,
-            "status": "admitted", "admitted_t": time.time(), "discharged_t": None,
+            "status": "admitted", "admitted_t": time.time(), "discharged_t": None, "calibration": None,
         }
         self.store.save_patient(patient)
         return patient
@@ -387,6 +423,8 @@ class Ward:
             changes["risk_factors"] = body.risk_factors.model_dump()  # type: ignore[union-attr]
         changes = {k: v for k, v in changes.items() if v is not None}
         new = {**patient, **changes}
+        if new["device"] != patient["device"]:
+            new["calibration"] = None          # a new placement needs a new calibration
         self._check_conflicts(new["bed"], new["device"], exclude=patient_id)
         self.store.save_patient(new)
         rt = self.runtimes[patient_id]

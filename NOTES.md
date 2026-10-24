@@ -340,6 +340,13 @@ records the reasoning and smaller choices.
   banner is injected server-side into every page so it holds without frontend changes.
   Pins checked for the VPS: `requirements.txt` resolves on Python 3.12 and 3.14 x86_64.
 
+## M10 polish (Sun early)
+
+- **Calibrate supine:** Rodrigues rotation from the 3 s mean gravity vector to (0, 0, 1), applied
+  to the gravity vector before the posture rule. Matches the frontend's call
+  (`POST /api/calibrate/supine` → `{gravity, samples, …}`, read from Cursor's `web/patient.js`).
+  Permission nurse/admin. Tilt only — see AGENTS.md M10 limitation.
+
 ## Clinical app shell contract (§19) — choices made while writing it
 
 - **Both WebSockets:** a light `/ws/ward` (summaries + alert pushes) for the overview and a heavy

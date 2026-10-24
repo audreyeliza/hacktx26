@@ -195,7 +195,8 @@ def compute_vitals(buffers: RingBuffer, end: int, fs: float, cfg: Config) -> dic
     return analyze(buffers, end, fs, cfg)[0]
 
 
-def analyze(buffers: RingBuffer, end: int, fs: float, cfg: Config) -> tuple[dict[str, Any], np.ndarray]:
+def analyze(buffers: RingBuffer, end: int, fs: float, cfg: Config,
+            rotation: np.ndarray | None = None) -> tuple[dict[str, Any], np.ndarray]:
     """All rates, quality and posture for the windows ending at sample index `end`, plus the
     quality-masked 60 s block (for event detection).
 
@@ -238,6 +239,6 @@ def analyze(buffers: RingBuffer, end: int, fs: float, cfg: Config) -> tuple[dict
         "channels": current.channels,
         "motion": None if current.motion is None else round(current.motion, 4),
         "clean_fraction": round(sum(g.label == "clean" for g in segments) / len(segments), 3),
-        "posture": posture(raw[:, -n_seg:], cfg),
+        "posture": posture(raw[:, -n_seg:], cfg, rotation),
     })
     return v, block

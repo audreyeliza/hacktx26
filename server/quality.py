@@ -141,14 +141,31 @@ def segment_masks(block: np.ndarray, fs: float, cfg: Config) -> tuple[np.ndarray
     return out, results
 
 
-def posture(block: np.ndarray, cfg: Config) -> str:
+def supine_rotation(gravity: np.ndarray) -> np.ndarray:
+    """Rotation that maps the gravity vector measured while the patient lies flat onto supine
+    (0, 0, 1) — the "calibrate supine" control (M10). It corrects how the patch is tilted on the
+    chest; a rotation of the patch *within* the chest plane cannot be seen from lying flat alone."""
+    a = np.asarray(gravity, dtype=float)
+    a = a / np.linalg.norm(a)
+    z = np.array([0.0, 0.0, 1.0])
+    v = np.cross(a, z)
+    s, c = float(np.linalg.norm(v)), float(a @ z)
+    if s < 1e-9:
+        return np.eye(3) if c > 0 else np.diag([1.0, -1.0, -1.0])
+    vx = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+    return np.eye(3) + vx + vx @ vx * ((1 - c) / s ** 2)
+
+
+def posture(block: np.ndarray, cfg: Config, rotation: np.ndarray | None = None) -> str:
     """Posture from the mean gravity vector (default axes: x = patient's left, y = head, z = out
-    of chest). Calibration ("calibrate supine", M10) will rotate the vector first."""
+    of chest), after the "calibrate supine" rotation when one is set."""
     acc = block[[CH["ax"], CH["ay"], CH["az"]]]
     valid = ~np.isnan(acc).any(axis=0)
     if valid.mean() < cfg.quality.min_valid_fraction:
         return "unknown"
     g = acc[:, valid].mean(axis=1)
+    if rotation is not None:
+        g = rotation @ g
     for name, (axis, sign) in POSTURES.items():
         if g[axis] * sign >= cfg.quality.posture_min_g:
             return name

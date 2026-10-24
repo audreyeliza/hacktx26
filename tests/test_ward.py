@@ -19,7 +19,8 @@ from tests.conftest import with_overrides
 
 # ---- §19.3 key sets (the contract the frontend is built against)
 USER = {"username", "display_name", "role"}
-PATIENT = {"id", "name", "bed", "risk_factors", "device", "notes", "status", "admitted_t", "discharged_t"}
+PATIENT = {"id", "name", "bed", "risk_factors", "device", "notes", "status", "admitted_t", "discharged_t",
+           "calibration"}
 RISK = {"opioids", "supplemental_o2", "osa", "age_over_65"}
 DEVICE_STATUS = {"kind", "device_id", "scenario", "link_ok", "source", "source_status", "packets", "gaps",
                  "missing_packets", "last_packet_t"}

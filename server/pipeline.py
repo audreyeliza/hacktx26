@@ -53,6 +53,7 @@ class Pipeline:
         self.events: deque[dict[str, Any]] = deque(maxlen=cfg.events.recent_max)
         self.ongoing: dict[str, Any] | None = None
         self.posture = "unknown"
+        self.rotation: Any = None   # "calibrate supine" rotation (numpy 3x3) or None
         self.vitals_step = int(round(cfg.signals.rate_interval_s * fs))
         self.watch_step = int(round(cfg.events.watch_interval_s * fs))
         self._next_event_id = 1
@@ -83,7 +84,7 @@ class Pipeline:
 
     def step(self, buffers: RingBuffer, end: int, sample_time: SampleTime) -> StepResult:
         """Vitals step (every 5 s): rates, quality, posture, naive monitor, rate/sensor rules."""
-        vitals, _ = analyze(buffers, end, self.fs, self.cfg)
+        vitals, _ = analyze(buffers, end, self.fs, self.cfg, self.rotation)
         t = sample_time(end)
         vitals["t"] = t
         self.posture = vitals["posture"]

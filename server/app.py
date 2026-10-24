@@ -504,6 +504,15 @@ def create_app(cfg: Config | None = None, source: str | None = None) -> FastAPI:
         png = await asyncio.to_thread(render_chart, cfg, st().store, patient, now_t, baseline)
         return Response(png, media_type="image/png", headers={"Cache-Control": "no-cache"})
 
+    # ---- "calibrate supine" (M10)
+    @app.post("/api/patients/{patient_id}/calibrate/supine")
+    async def calibrate_patient(patient_id: str, user: dict = Depends(can_edit)) -> dict[str, Any]:
+        return st().ward.runtime(patient_id).calibrate_supine()
+
+    @app.delete("/api/patients/{patient_id}/calibration")
+    async def clear_calibration(patient_id: str, user: dict = Depends(can_edit)) -> dict[str, Any]:
+        return st().ward.runtime(patient_id).clear_calibration()
+
     # ---- admin: device & data
     @app.get("/api/admin/device")
     async def admin_device(user: dict = Depends(admin_only)) -> dict[str, Any]:
@@ -564,6 +573,11 @@ def create_app(cfg: Config | None = None, source: str | None = None) -> FastAPI:
         if rt is None:
             raise HTTPException(404, f"no admitted patient has device {cfg.ward.live_device_id}")
         return rt
+
+    @app.post("/api/calibrate/supine")
+    async def calibrate_live(user: dict = Depends(can_edit)) -> dict[str, Any]:
+        """The path in AGENTS.md M10: the patient wearing the live device."""
+        return live().calibrate_supine()
 
     @app.get("/api/state")
     async def legacy_state(user: dict = Depends(signed_in)) -> dict[str, Any]:
