@@ -413,6 +413,13 @@ Work in this order. Each milestone must pass its check before moving on. Commit 
       computed relative to that calibration (rotation that maps the recorded vector to supine).
       Before calibration, use the default axis convention: x = patient's left, y = toward head,
       z = out of the chest (supine az ≈ +1 g, left ax ≈ −1 g, right ax ≈ +1 g, upright ay ≈ +1 g).
+11. **Deployment prep (Pi).** `deploy/pi_setup.sh` (run on the Pi in `~/hacktx` as `audreybolyard`:
+    Python ≥ 3.11 check — the Pi has 3.13.5 — apt `python3-venv`, venv + `requirements.txt`,
+    `dialout` group, `.env` mode 600, installs/starts the systemd unit), `deploy/breathwatch.service`
+    (runs `.venv/bin/python -m server.app`, restarts on failure, code read-only, only `data/`
+    writable), `deploy/push_to_pi.sh` (Mac → `audreybolyard@audreybolyard.local:~/hacktx` via rsync;
+    `.env` only with `--env`). **Do not deploy to any cloud server yet.**
+    - **PUBLIC_DEMO mode: not specified yet** — waiting for the team's spec before building it.
 
 ## 15. Conventions
 
@@ -439,7 +446,11 @@ Work in this order. Each milestone must pass its check before moving on. Commit 
   `sudo nmcli device wifi hotspot ifname wlan0 ssid BreathWatch password <pass>` — the Pi is
   usually `10.42.0.1` on its own hotspot; confirm with `ip addr` and set `SERVER_IP` to match.
 - Internet for the Gemini API via Ethernet.
-- `python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt`
+- Host `audreybolyard.local`, user `audreybolyard`, project in `~/hacktx`, Python 3.13.5.
+- From the Mac: `./deploy/push_to_pi.sh --env --setup` (first time: copies code + `.env`, then runs
+  `deploy/pi_setup.sh` on the Pi, which creates the venv, installs the `breathwatch` systemd
+  service and starts it). Later: `./deploy/push_to_pi.sh --restart`.
+- On the Pi: `systemctl status breathwatch`, `journalctl -u breathwatch -f`.
 
 ## 18. Hackathon context (HackTX '26)
 

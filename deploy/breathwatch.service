@@ -1,0 +1,41 @@
+# BreathWatch server on the Raspberry Pi 4 (AGENTS.md §17, milestone 11).
+# Installed by deploy/pi_setup.sh to /etc/systemd/system/breathwatch.service.
+#   sudo systemctl status breathwatch      journalctl -u breathwatch -f
+# Research prototype — not a medical device.
+
+[Unit]
+Description=BreathWatch server (research prototype)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=audreybolyard
+Group=audreybolyard
+# USB serial to the Pico (/dev/ttyACM*)
+SupplementaryGroups=dialout
+WorkingDirectory=/home/audreybolyard/hacktx
+# The app reads GEMINI_API_KEY from ~/hacktx/.env itself (never logged).
+ExecStart=/home/audreybolyard/hacktx/.venv/bin/python -m server.app
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=MPLBACKEND=Agg
+Environment=MPLCONFIGDIR=/home/audreybolyard/hacktx/data/.matplotlib
+
+# Hardening: the code is read-only; only data/ (SQLite, recordings, labels) is writable.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/audreybolyard/hacktx/data
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

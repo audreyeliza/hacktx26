@@ -31,6 +31,9 @@ Honest record of which tool or agent produced each part of the project.
 | Sat night | Claude Code | M7 | `server/llm.py` (Gemini provider via google-genai, fake provider, digest builder, matplotlib trend chart sent as an image, SBAR structured output, cache fallback), per-patient + legacy summary endpoints, `tests/test_llm.py` (no network); bad-key fallback checked once against the real API. |
 | Sat night | Cursor (Grok) | frontend | Committed the clinical shell in `web/`: login, ward census, patient detail, add-patient, and admin Device & data. Built by Cursor against §19 with `mock.js` (`USE_MOCK` still on). Did not edit `server/`. |
 | Sat night | Cursor (Grok) | frontend | Pointed the same pages at the real API (`USE_MOCK` false). Alert list uses `status=unacked`; `awaiting_ack` reads "Resolved, awaiting acknowledgment"; a summary 503 says the language model is unreachable and no saved copy exists. Checked in the browser against `python -m server.app` on port 8000. |
+| Sat night | Claude Code | Gemini | Key from `.env` (environment wins, never logged); model id checked with `models.list()`; overload fallback to `gemini-3.5-flash` / `-lite`; first real overnight summary + SBAR note generated on demo data. |
+| Sat night | Claude Code | quality | Floating (unconnected) ADC pins detected as `sensor_off` (band + jitter + high-frequency correlation); simulator faults for it. |
+| Sat night | Claude Code | M11 prep | Pi setup script, systemd unit, Mac push script (not run); PUBLIC_DEMO waiting for a spec. |
 
 ## Prompts that worked
 

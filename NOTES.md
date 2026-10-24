@@ -327,6 +327,16 @@ records the reasoning and smaller choices.
   mostly slow (< 1.5 Hz) the single-pin rule would miss it (the multi-pin correlation rule needs
   some fast jitter too). Recording 1–2 min of disconnected pins with record mode would settle it.
 
+## M11 deployment prep (Sat night)
+
+- `deploy/pi_setup.sh`, `deploy/breathwatch.service`, `deploy/push_to_pi.sh` (see AGENTS.md M11, §17).
+  Written and syntax-checked only; **not run against the Pi**, nothing deployed anywhere.
+- The service is sandboxed (`ProtectSystem=strict`, `ProtectHome=read-only`, only `data/` writable,
+  `NoNewPrivileges`), so bytecode caching is off and matplotlib's cache lives in `data/`.
+- `.env` is never rsynced; `push_to_pi.sh --env` copies it separately with mode 600.
+- **PUBLIC_DEMO:** requested "as specified", but no spec exists in AGENTS.md, NOTES.md or the
+  rest of the repo. Not built; proposal sent to the team.
+
 ## Clinical app shell contract (§19) — choices made while writing it
 
 - **Both WebSockets:** a light `/ws/ward` (summaries + alert pushes) for the overview and a heavy
