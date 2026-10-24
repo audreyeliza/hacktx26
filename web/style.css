@@ -1,0 +1,73 @@
+/* Minimal, functional styles. Restyle freely: colors are variables, layout is one grid. */
+:root {
+  --bg: #f5f6f8;
+  --panel: #ffffff;
+  --text: #1f2933;
+  --muted: #6b7785;
+  --border: #dde2e8;
+  --tier0: #2e8b57;   /* calm green */
+  --tier1: #d4a017;   /* yellow */
+  --tier2: #e07b24;   /* orange */
+  --tier3: #c62828;   /* red: tier 3 only */
+  --wave-effort: #3b6ea8;
+  --wave-airflow: #2a9d8f;
+  --wave-pulse: #8e5ea2;
+  --radius: 8px;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.topbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; }
+.topbar__title { font-size: 1.2rem; margin: 0; }
+.conn { font-size: 0.85rem; color: var(--muted); }
+.conn[data-state="open"] { color: var(--tier0); }
+.conn[data-state="closed"] { color: var(--tier2); }
+
+.layout {
+  display: grid;
+  gap: 12px;
+  padding: 0 16px 16px;
+  grid-template-columns: minmax(240px, 1fr) 3fr;
+}
+.layout > .panel:not(.tile) { grid-column: 2; }
+.tile { grid-row: span 3; align-self: start; }
+@media (max-width: 760px) {
+  .layout { grid-template-columns: 1fr; }
+  .layout > .panel:not(.tile) { grid-column: 1; }
+  .tile { grid-row: auto; }
+}
+
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; min-width: 0; }
+.panel__title { font-size: 1rem; margin: 0 0 8px; }
+.panel__title small { color: var(--muted); font-weight: normal; }
+
+.tile { border-left: 8px solid var(--tier0); }
+.tile[data-tier="1"] { border-left-color: var(--tier1); }
+.tile[data-tier="2"] { border-left-color: var(--tier2); }
+.tile[data-tier="3"] { border-left-color: var(--tier3); }
+.tile__name { margin: 0 0 8px; font-size: 1.3rem; }
+
+.vitals { margin: 0; display: grid; gap: 10px; }
+.vital dt { font-size: 0.8rem; color: var(--muted); }
+.vital dd { margin: 0; font-size: 1.8rem; font-weight: 600; }
+.vital dd small { font-size: 0.85rem; font-weight: normal; color: var(--muted); }
+.vital .vital__detail { font-size: 0.8rem; font-weight: normal; color: var(--muted); }
+
+.badge { font-size: 0.9rem; padding: 2px 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--border); }
+
+.wave { margin-bottom: 6px; }
+.wave__label { display: block; font-size: 0.75rem; color: var(--muted); }
+.wave__plot { position: relative; height: 95px; }
+.trend { position: relative; height: 180px; }
+
+.controls__row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.controls input[type="number"] { width: 4.5em; }
+.status { font-size: 0.8rem; color: var(--muted); margin: 8px 0 0; word-break: break-word; }
+
+.footer { text-align: center; font-size: 0.8rem; color: var(--muted); padding: 12px 16px 24px; }

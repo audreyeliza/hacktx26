@@ -29,6 +29,8 @@ class ContractCfg:
 @dataclass(frozen=True)
 class NetworkCfg:
     server_ip: str
+    http_host: str
+    http_port: int
     udp_host: str
     udp_port: int
     command_port: int
@@ -37,9 +39,24 @@ class NetworkCfg:
 
 @dataclass(frozen=True)
 class IngestCfg:
+    default_source: str
+    default_speed: float
     buffer_s: int
-    max_gap_fill_s: float
-    reorder_tolerance: int
+    restart_seq_back: int
+    serial_reconnect_s: float
+    serial_read_timeout_s: float
+    serial_max_line_bytes: int
+    serial_pico_vid: int
+    link_timeout_s: float
+
+
+@dataclass(frozen=True)
+class LiveCfg:
+    push_hz: float
+    wave_decimate: int
+    wave_window_s: float
+    status_interval_s: float
+    trend_window_s: float
 
 
 @dataclass(frozen=True)
@@ -108,6 +125,7 @@ class Config:
     contract: ContractCfg
     network: NetworkCfg
     ingest: IngestCfg
+    live: LiveCfg
     simulator: SimulatorCfg
     signals: SignalsCfg
 

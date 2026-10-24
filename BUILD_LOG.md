@@ -18,6 +18,8 @@ Honest record of which tool or agent produced each part of the project.
 | Sat afternoon | Claude Code | planning | Read AGENTS.md, proposed the M1–3 plan and flagged spec issues (filter corner at 6/min, window length, `rr_fused` undefined, `t0_ms` wrap, firmware timer ISR). Team accepted with changes (single-source fallback for `rr_fused`). |
 | Sat afternoon | Claude Code | docs | Wrote the agreed decisions into AGENTS.md §4, §7, §13. |
 | Sat afternoon | Claude Code | M1 | `config.yaml`, `server/config.py`, `server/schema.py`, `server/simulator.py` (8 scenarios + ground-truth labels), tests. |
+| Sat afternoon | Claude Code | docs | AGENTS.md: Mac as main server, Pi optional (Trixie), serial source behaviour, timeline anchoring wording, vendored Chart.js, M10 "calibrate supine" control. |
+| Sat afternoon | Claude Code | M2 | `server/ingest.py` (ring buffers, seq timeline with NaN gaps, UDP / USB serial / in-process simulator sources), `server/app.py` (REST, WebSocket, static), minimal `web/` dashboard, tests incl. serial over a pty. Checked in Chrome via the LAN address. |
 
 ## Prompts that worked
 
@@ -25,3 +27,5 @@ Honest record of which tool or agent produced each part of the project.
   files you'll create, how you'll test the packet schema, and anything in the spec that's
   ambiguous or that you'd change." — getting the plan reviewed first caught four spec issues
   before any code existed.
+- "Make sure the USB serial input source works well" — led to a pty-based test that drives the
+  real pyserial code path with split lines, CRLF and REPL noise, no hardware needed.

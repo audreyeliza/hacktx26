@@ -48,7 +48,12 @@ footer.
 ## 3. Hardware (for context; the human builds this)
 
 - **Wearable:** Raspberry Pi Pico 2W (MicroPython), clipped to a chest belt, USB power bank.
-- **Server:** Raspberry Pi 4 Model B 1 GB, Raspberry Pi OS Lite (64-bit), acts as WiFi hotspot.
+- **Server (decided):** a **Mac laptop** runs the server for development and the demo, bound to
+  `0.0.0.0` so phones on the same network can open the dashboard. The Pico connects by **USB
+  serial** (likely the main link) or by UDP over a shared network (e.g. a phone hotspot; the
+  Pico's `SERVER_IP` must be set to the Mac's address on that network).
+- **Optional deployment target:** Raspberry Pi 4 Model B 1 GB, Raspberry Pi OS Lite 64-bit
+  (Debian Trixie), can act as WiFi hotspot. Keep code compatible; no Pi-specific work.
 - **Sensors:** Keyestudio 48-in-1 kit modules, all powered from the Pico's **3.3 V** pin.
 
 | Pico pin | Module | Signal |
@@ -94,9 +99,13 @@ CTRL_REG1 `0x2A`. Data registers `0x01`–`0x06`, 12-bit left-justified, 1024 co
   detect and log gaps.
 - All arrays in one packet have equal length.
 - **Server timing (decided):** the server builds its timeline from **arrival time + `seq`**,
-  not from `t0_ms` (`ticks_ms` wraps and the Pico clock drifts). `t0_ms` is kept for
-  diagnostics only. A `seq` gap must appear as a **gap in the timeline** (missing samples are
-  marked NaN for the gap duration), never as compressed data. Processing treats NaN spans as
+  not from `t0_ms` (`ticks_ms` wraps and the Pico clock drifts). Concretely: the arrival time of
+  the first packet anchors the timeline; after that, sample time = anchor + sample index × dt,
+  where `seq` decides the sample index. The stream re-anchors on arrival time when it restarts
+  (`seq` goes backwards, or the device id changes). `t0_ms` is kept for diagnostics only.
+  Late/duplicate packets (`seq` at or behind the newest) are dropped and counted. A `seq` gap
+  must appear as a **gap in the timeline** (missing samples are marked NaN for the gap
+  duration), never as compressed data. Processing treats NaN spans as
   missing data, not as a flat signal.
 
 ### Pi → Pico (bedside commands)
@@ -291,14 +300,19 @@ We are entering MLH "Best Use of Gemini API", so Gemini is the LLM provider.
 - `WS /ws/live`: pushes at 10 Hz the latest downsampled waveforms (effort, airflow, pulse),
   and every 5 s the vitals, quality, posture, tier, and new events/alerts.
 - `GET /api/state`, `GET /api/events`, `GET /api/alerts`, `POST /api/alerts/{id}/ack`.
-- `POST /api/source` switch input: `simulator:<scenario>`, `udp`, `serial:<port>`.
+- `POST /api/source` switch input: `simulator:<scenario>`, `udp`, `serial:<port>`, or
+  `serial:auto` (finds the Pico by USB VID `0x2E8A`, else the first `usbmodem`/`ttyACM` port).
+  The serial source reconnects automatically after unplug/reset and ignores non-JSON lines
+  (REPL banners, debug prints). `GET /api/serial/ports` lists ports.
 - `POST /api/record/start` with label, `POST /api/record/stop`.
 - `POST /api/demo/reset` clears state for a fresh demo run.
-- Run with `uvicorn server.app:app --host 0.0.0.0 --port 8000`.
+- Run with `uvicorn server.app:app --host 0.0.0.0 --port 8000` (or `python -m server.app`,
+  which also prints the dashboard URL for phones and the `SERVER_IP` to use).
 
 ## 12. Dashboard (`web/`)
 
-Vanilla HTML/JS/CSS, Chart.js from a CDN, no build step. Single page, works on a laptop and a
+Vanilla HTML/JS/CSS, Chart.js, no build step. Chart.js is vendored in `web/vendor/` (decided:
+the demo network may have no internet, and a CDN script would leave the page blank). Single page, works on a laptop and a
 phone. Sections:
 
 1. Patient tile: name "Bed 4", tier color, rr_fused, HR, posture, quality badge.
@@ -350,10 +364,15 @@ Work in this order. Each milestone must pass its check before moving on. Commit 
 9. **Record mode + quality v1.** Recordings saved as CSV with labels; `train_quality.py`
    trains, saves `data/quality_model.joblib`, prints a confusion matrix; server uses it.
 10. **Polish:** demo script works end to end from `POST /api/demo/reset`.
+    - **"Calibrate supine" control:** a dashboard button (and `POST /api/calibrate/supine`) records
+      the mean gravity vector over a few seconds while the patient lies flat; posture is then
+      computed relative to that calibration (rotation that maps the recorded vector to supine).
+      Before calibration, use the default axis convention: x = patient's left, y = toward head,
+      z = out of the chest (supine az ≈ +1 g, left ax ≈ −1 g, right ax ≈ +1 g, upright ay ≈ +1 g).
 
 ## 15. Conventions
 
-- Python 3.11, type hints, small modules, no global mutable state outside an app `State` class.
+- Python 3.11+ (dev Mac: 3.12; Pi on Trixie: 3.13), type hints, small modules, no global mutable state outside an app `State` class.
 - Dependencies: fastapi, uvicorn, numpy, scipy, scikit-learn, joblib, pyyaml, pyserial,
   google-genai, matplotlib, pytest; neurokit2 optional; psycopg (only for the Tiger Data stretch). Pin versions in `requirements.txt`.
 - All tunable numbers in `config.yaml`.
@@ -369,10 +388,10 @@ Work in this order. Each milestone must pass its check before moving on. Commit 
 - Do not claim clinical accuracy anywhere in the UI or docs.
 - Do not store API keys in the repo.
 
-## 17. Raspberry Pi 4 setup notes (for the human)
+## 17. Raspberry Pi 4 setup notes (optional deployment target, for the human)
 
-- Flash Raspberry Pi OS Lite 64-bit; enable SSH.
-- Hotspot (Bookworm, NetworkManager):
+- Flash Raspberry Pi OS Lite 64-bit (Trixie); enable SSH.
+- Hotspot (NetworkManager):
   `sudo nmcli device wifi hotspot ifname wlan0 ssid BreathWatch password <pass>` — the Pi is
   usually `10.42.0.1` on its own hotspot; confirm with `ip addr` and set `SERVER_IP` to match.
 - Internet for the Gemini API via Ethernet.

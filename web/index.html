@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BreathWatch</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1 class="topbar__title">BreathWatch</h1>
+    <span class="conn" id="conn" data-state="connecting">connecting…</span>
+  </header>
+
+  <main class="layout">
+    <!-- 1. Patient tile -->
+    <section class="panel tile" id="tile" data-tier="0" aria-label="Patient">
+      <h2 class="tile__name">Bed 4</h2>
+      <dl class="vitals">
+        <div class="vital">
+          <dt>Resp. rate</dt>
+          <dd><span id="rr">—</span> <small>/min</small></dd>
+          <dd class="vital__detail" id="rr-detail"></dd>
+        </div>
+        <div class="vital">
+          <dt>Heart rate</dt>
+          <dd><span id="hr">—</span> <small>bpm</small></dd>
+        </div>
+        <div class="vital">
+          <dt>Posture</dt>
+          <dd id="posture">—</dd>
+        </div>
+        <div class="vital">
+          <dt>Signal</dt>
+          <dd><span class="badge" id="quality">—</span></dd>
+        </div>
+      </dl>
+    </section>
+
+    <!-- 2. Live waveforms -->
+    <section class="panel" aria-label="Live waveforms">
+      <h2 class="panel__title">Live waveforms <small>(last 30 s)</small></h2>
+      <div class="wave"><span class="wave__label">Effort (belt)</span><div class="wave__plot"><canvas id="wave-effort"></canvas></div></div>
+      <div class="wave"><span class="wave__label">Airflow (thermistor)</span><div class="wave__plot"><canvas id="wave-airflow"></canvas></div></div>
+      <div class="wave"><span class="wave__label">Pulse</span><div class="wave__plot"><canvas id="wave-pulse"></canvas></div></div>
+    </section>
+
+    <!-- 3. Breathing-rate trend -->
+    <section class="panel" aria-label="Breathing-rate trend">
+      <h2 class="panel__title">Breathing rate trend</h2>
+      <div class="trend"><canvas id="trend"></canvas></div>
+    </section>
+
+    <!-- 8. Controls -->
+    <section class="panel controls" aria-label="Controls">
+      <h2 class="panel__title">Source</h2>
+      <form id="source-form" class="controls__row">
+        <select id="source-select" aria-label="Input source"></select>
+        <label>Speed <input id="source-speed" type="number" min="0" step="0.5" value="1"></label>
+        <label><input id="source-loop" type="checkbox"> loop</label>
+        <button type="submit">Switch</button>
+        <button type="button" id="reset-btn">Reset</button>
+      </form>
+      <p class="status" id="status">—</p>
+    </section>
+  </main>
+
+  <footer class="footer">
+    Research prototype — not a medical device. Thresholds are for demonstration.
+  </footer>
+
+  <script src="/static/vendor/chart.umd.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

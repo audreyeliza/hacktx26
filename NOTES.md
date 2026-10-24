@@ -42,6 +42,37 @@ records the reasoning and smaller choices.
 - **Ground-truth labels** go to `data/sim_labels/<scenario>.json`: events (type, start, end,
   posture), quality segments (clean / motion / sensor_off) and true rate every 1 s.
 
+## Smaller choices (M2)
+
+- **Platform:** the Mac runs the server for dev and the demo; the Pi 4 (Trixie, Python 3.13) is an
+  optional target. AGENTS.md §3/§15/§17 updated. Current pins also have 3.13 aarch64 wheels.
+- **Default source is `udp`** (`ingest.default_source`), so both the external simulator and a WiFi
+  Pico work with no clicks. Switch to `serial:auto` in the dashboard or config for USB.
+- **Timeline anchoring:** sample time = first packet's arrival + sample index × 20 ms. With
+  `--speed 10`, sample time runs ahead of the wall clock, which is fine: processing runs on sample
+  time. Re-anchor happens on `seq` going back > 4 (`restart_seq_back`) or a device id change;
+  smaller backward steps are late/duplicate packets and are dropped (not back-filled).
+- **Serial source:** pyserial in a daemon thread, lines handed to the event loop with
+  `call_soon_threadsafe`, so buffers are only touched on one thread (no locks). Handles lines split
+  across reads, CRLF, REPL banners/debug prints (counted as `nonjson_lines`, not errors), unplug and
+  re-plug (reconnect every 1 s), and port-busy (opened with `exclusive=True`, error message says
+  "is Thonny/mpremote holding the port?"). `serial:auto` picks the Pico by USB VID 0x2E8A, else the
+  first `usbmodem`/`ttyACM` port. Tested against a real pseudo-terminal.
+- **Phone access:** HTTP binds `0.0.0.0:8000`. On startup the server logs every LAN IPv4 as
+  "Dashboard: http://<ip>:8000 (Pico SERVER_IP=<ip>)"; the dashboard status line shows them too.
+  When the Mac is on a phone hotspot (iPhone: 172.20.10.x) that address is the Pico's `SERVER_IP`.
+- **Bedside command address:** the Pico's address is learned from the source address of its UDP
+  packets (`Ingest.pico_addr`) instead of being configured.
+- **Chart.js 4.5.1 vendored** in `web/vendor/` (not a CDN) so the page works with no internet.
+  4.6.1 was 2 days old at the time, so the previous release was used. AGENTS.md §12 updated.
+- **Waveforms on the socket are raw ADC counts**, decimated 50 → 25 Hz, NaN → `null` (a visible
+  gap). Raw (not filtered) so rails, clipping and motion are visible while debugging hardware.
+  Messages are incremental (only new samples), aligned to the global sample index.
+- **Static files are sent with `Cache-Control: no-cache`** so dashboard edits show up on a normal
+  reload (found while testing: the browser kept a stale `style.css`).
+- **Known warning:** Starlette warns that `httpx` in `TestClient` is deprecated in favour of
+  `httpx2`. Harmless for now; tests pass.
+
 ## Open questions
 
 - SpaceXSI track: does Claude Code count as part of the multi-agent workflow? (team is asking MLH)

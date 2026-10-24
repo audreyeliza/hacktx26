@@ -12,16 +12,31 @@ contract:                  # AGENTS.md section 4 (do not change without updating
   max_datagram_bytes: 1400 # stay below a typical UDP MTU so packets never fragment
 
 network:
-  server_ip: 10.42.0.1     # NetworkManager hotspot default on the Pi
+  server_ip: 10.42.0.1     # where the Pico sends UDP; set to the Mac's IP on a phone hotspot
+  http_host: 0.0.0.0       # all interfaces, so phones on the same network can open the dashboard
+  http_port: 8000
   udp_host: 0.0.0.0
   udp_port: 5005
   command_port: 5006
   serial_baud: 115200
 
 ingest:
+  default_source: udp      # udp | serial:auto | serial:/dev/cu.usbmodemXXXX | simulator:<scenario>
+  default_speed: 1.0       # simulator playback speed for the in-process source
   buffer_s: 600            # ring buffer length per channel (10 min)
-  max_gap_fill_s: 30       # longer seq gaps are logged and the buffer restarts from "now"
-  reorder_tolerance: 4     # seq numbers this far behind the newest are treated as late duplicates
+  restart_seq_back: 4      # seq this far behind the newest = device restarted (re-anchor)
+  serial_reconnect_s: 1.0
+  serial_read_timeout_s: 0.2
+  serial_max_line_bytes: 8192
+  serial_pico_vid: 0x2E8A  # Raspberry Pi USB vendor id (Pico)
+  link_timeout_s: 3.0      # no packet for this long = link lost
+
+live:                      # WebSocket push to the dashboard
+  push_hz: 10
+  wave_decimate: 2         # 50 Hz -> 25 Hz for display
+  wave_window_s: 30
+  status_interval_s: 1.0
+  trend_window_s: 3600
 
 simulator:
   seed: 42
