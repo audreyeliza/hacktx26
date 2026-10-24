@@ -268,6 +268,31 @@ records the reasoning and smaller choices.
   / 403 / 404 / 409 / 422 paths, WebSocket 4401 / 4404 / discharge, routing, record CSV, reset /
   reseed, and design rule 8 (same data, opposite risk factors → identical alerts).
 
+## Smaller choices (M7)
+
+- **Model ids:** `gemini-3.8-flash` for explain, overnight and handoff (configurable;
+  `handoff_model` can point at a stronger model such as `gemini-4-argon`). Taken from the Gemini
+  models page (Oct 2026) — **not yet verified with a real key**; the first real call will show
+  whether the id is accepted (a wrong id falls back to the cache and logs the API error).
+- **SDK:** `google-genai` 2.33: `Client(api_key=…, http_options=HttpOptions(timeout=20 000 ms))`,
+  `system_instruction`, image as `Part.from_bytes(png)`, handoff with `response_mime_type=
+  application/json` + a pydantic schema (SBAR + `chart_observation` + `discrepancies`). The SDK
+  call runs in a worker thread with an extra asyncio timeout as a backstop.
+- **Digest** (never waveforms): bed, risk factors, notes (≤ 300 chars), data source (simulated vs
+  live), time range, rate stats + baseline + first/last-quarter means + minutes without a
+  reliable rate, HR stats, quality/posture/flag fractions, events by type/posture + the last 15,
+  alerts (tier ≥ 1) with reasons. No patient name is sent. Explain uses 15 min before the alert;
+  overnight/handoff the stay so far, at most 12 h.
+- **Chart** (overnight + handoff, also `GET …/summary/chart.png`): matplotlib `Figure` (thread-safe,
+  Agg), rate line, dashed baseline, faint 10/8/6 lines, event spans by type, tier ≥ 2 alert
+  triangles. The prompt asks Gemini to describe it first and report chart-vs-digest
+  disagreements rather than resolve them.
+- **Cache / offline:** every response stored in `llm_cache`; on failure (no key, bad key, network,
+  timeout, malformed SBAR JSON) the latest cached response for that patient + kind (explain:
+  that alert) is returned with `cached: true`; nothing cached → 503. Demo reset keeps the cache.
+  Checked once against the real API with a deliberately invalid key: `API_KEY_INVALID` → cached
+  response in 0.2 s.
+
 ## Clinical app shell contract (§19) — choices made while writing it
 
 - **Both WebSockets:** a light `/ws/ward` (summaries + alert pushes) for the overview and a heavy

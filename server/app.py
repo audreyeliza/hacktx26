@@ -27,6 +27,7 @@ from pydantic import BaseModel
 from server.auth import ADMIN, CAN_EDIT_PATIENTS, Sessions
 from server.config import ROOT, Config, load_config
 from server.ingest import CH, Ingest, list_serial_ports, local_ips
+from server.llm import LLMUnavailable, Summarizer, render_chart
 from server.patients import PatientCreate, PatientRuntime, PatientUpdate, Ward, WardError
 from server.record import Recorder
 from server.simulator import SCENARIO_NAMES
@@ -52,6 +53,7 @@ class State:
         self.sessions = Sessions(cfg.auth)
         self.recorder = Recorder(cfg)
         self.ingest.on_packet = self.recorder.on_packet
+        self.summarizer = Summarizer(cfg, self.store)
         self.started = time.time()
 
     def network(self) -> dict[str, Any]:
@@ -422,6 +424,46 @@ def create_app(cfg: Config | None = None, source: str | None = None) -> FastAPI:
                         user: dict = Depends(signed_in)) -> dict[str, Any]:
         return _ack(patient_id, alert_id, user, req.note if req else None)
 
+    # ---- LLM summaries (§10, §19.5) — explanations only; they never change alerts
+    def _summary_context(patient_id: str) -> tuple[dict[str, Any], float, dict[str, Any] | None]:
+        ward = st().ward
+        patient = ward.get(patient_id)
+        rt = ward.runtimes.get(patient_id)
+        now_t = rt.now_t() if rt else (patient.get("discharged_t") or time.time())
+        baseline = rt.pipeline.alerts.baseline() if rt else None
+        return patient, now_t, baseline
+
+    async def _summary(patient_id: str, kind: str, alert_id: int | None = None) -> dict[str, Any]:
+        patient, now_t, baseline = _summary_context(patient_id)
+        alert = None
+        if kind == "explain":
+            rt = st().ward.runtimes.get(patient_id)
+            alert = (rt.pipeline.alerts.alerts.get(alert_id) if rt else None) or st().store.alert(alert_id)
+            if alert is None or alert["patient_id"] != patient_id:
+                raise HTTPException(404, f"no alert {alert_id} for patient {patient_id}")
+        try:
+            return await st().summarizer.summarize(kind, patient, now_t, baseline, alert)
+        except LLMUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+    @app.post("/api/patients/{patient_id}/summary/explain/{alert_id}")
+    async def summary_explain(patient_id: str, alert_id: int, user: dict = Depends(signed_in)) -> dict[str, Any]:
+        return await _summary(patient_id, "explain", alert_id)
+
+    @app.post("/api/patients/{patient_id}/summary/overnight")
+    async def summary_overnight(patient_id: str, user: dict = Depends(signed_in)) -> dict[str, Any]:
+        return await _summary(patient_id, "overnight")
+
+    @app.post("/api/patients/{patient_id}/summary/handoff")
+    async def summary_handoff(patient_id: str, user: dict = Depends(signed_in)) -> dict[str, Any]:
+        return await _summary(patient_id, "handoff")
+
+    @app.get("/api/patients/{patient_id}/summary/chart.png")
+    async def summary_chart(patient_id: str, user: dict = Depends(signed_in)) -> Response:
+        patient, now_t, baseline = _summary_context(patient_id)
+        png = await asyncio.to_thread(render_chart, cfg, st().store, patient, now_t, baseline)
+        return Response(png, media_type="image/png", headers={"Cache-Control": "no-cache"})
+
     # ---- admin: device & data
     @app.get("/api/admin/device")
     async def admin_device(user: dict = Depends(admin_only)) -> dict[str, Any]:
@@ -488,6 +530,18 @@ def create_app(cfg: Config | None = None, source: str | None = None) -> FastAPI:
     @app.post("/api/alerts/{alert_id}/ack")
     async def legacy_ack(alert_id: int, req: AckRequest | None = None, user: dict = Depends(signed_in)) -> dict[str, Any]:
         return _ack(live().id, alert_id, user, req.note if req else None)
+
+    @app.post("/api/summary/explain/{alert_id}")
+    async def legacy_explain(alert_id: int, user: dict = Depends(signed_in)) -> dict[str, Any]:
+        return await _summary(live().id, "explain", alert_id)
+
+    @app.post("/api/summary/overnight")
+    async def legacy_overnight(user: dict = Depends(signed_in)) -> dict[str, Any]:
+        return await _summary(live().id, "overnight")
+
+    @app.post("/api/summary/handoff")
+    async def legacy_handoff(user: dict = Depends(signed_in)) -> dict[str, Any]:
+        return await _summary(live().id, "handoff")
 
     @app.websocket("/ws/live")
     async def ws_live(ws: WebSocket) -> None:

@@ -309,6 +309,12 @@ We are entering MLH "Best Use of Gemini API", so Gemini is the LLM provider.
 - Cache every response in `llm_cache`; on API failure, return the latest cached response with
   a "cached" flag. Timeout 20 s.
 - The dashboard AI panel shows a small "Powered by Gemini" label.
+- **Decided (M7):** model ids live in `config.yaml` (`llm.model`, `llm.handoff_model`; default
+  `gemini-3.8-flash` for both, per the Gemini models page in Oct 2026). `llm.provider: fake` gives a
+  deterministic offline provider (tests). The digest identifies the patient by bed only (no
+  name) and states when data is simulated. If the API fails and nothing is cached for that
+  patient and kind, the endpoint returns **503** `{"detail": "..."}`; the explain cache is per
+  alert, overnight/handoff per patient.
 
 ## 11. Server API (`app.py`)
 
@@ -676,7 +682,8 @@ a tier-3 alert is not acknowledged within 60 s ("charge nurse"). `acknowledged_b
 }
 ```
 `kind` ∈ `"explain" | "overnight" | "handoff"`. `sbar` is `null` unless `kind` is `handoff`.
-`cached: true` means the API failed and this is the latest cached response.
+`cached: true` means the API failed and this is the latest cached response. If the API fails
+and nothing is cached yet, the summary endpoints return `503 {"detail": …}`.
 
 ### 19.4 Permissions
 

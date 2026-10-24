@@ -228,3 +228,17 @@ ward:
 record:
   dir: data/recordings
   labels: [clean, motion, sensor_off, slow_breathing, breath_hold_effort, breath_hold_no_effort]
+
+llm:                          # AGENTS.md §10 — Google Gemini; key from the environment only
+  provider: gemini            # gemini | fake (tests / offline development)
+  model: gemini-3.8-flash     # fast model for explanations and the overnight summary
+  handoff_model: gemini-3.8-flash   # optionally a stronger model for the SBAR note
+  api_key_env: GEMINI_API_KEY
+  timeout_s: 20
+  temperature: 0.2
+  max_output_tokens: 1200
+  explain_window_s: 900       # data around an alert for "explain"
+  overnight_window_s: 43200   # at most the last 12 h for overnight / handoff
+  max_events_listed: 15
+  max_alerts_listed: 15
+  notes_max_chars: 300

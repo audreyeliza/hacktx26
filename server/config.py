@@ -247,6 +247,22 @@ class RecordCfg:
 
 
 @dataclass(frozen=True)
+class LLMCfg:
+    provider: str
+    model: str
+    handoff_model: str
+    api_key_env: str
+    timeout_s: float
+    temperature: float
+    max_output_tokens: int
+    explain_window_s: float
+    overnight_window_s: float
+    max_events_listed: int
+    max_alerts_listed: int
+    notes_max_chars: int
+
+
+@dataclass(frozen=True)
 class Config:
     contract: ContractCfg
     network: NetworkCfg
@@ -263,6 +279,7 @@ class Config:
     auth: AuthCfg
     ward: WardCfg
     record: RecordCfg
+    llm: LLMCfg
 
 
 def _build(cls: type, raw: dict[str, Any], where: str) -> Any:
