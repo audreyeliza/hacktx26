@@ -258,3 +258,14 @@ llm:                          # AGENTS.md §10 — Google Gemini; key from the e
   max_events_listed: 15
   max_alerts_listed: 15
   notes_max_chars: 300
+
+public_demo:                  # AGENTS.md §20 — on with env PUBLIC_DEMO=1 (or enabled: true)
+  enabled: false
+  live_bed_scenario: demo     # the live bed (wearable) becomes this looping simulator
+  http_host: 127.0.0.1        # only reachable through the HTTPS reverse proxy (Caddy)
+  proxy_ips: 127.0.0.1        # trusted X-Forwarded-For / -Proto sources
+  reset_cooldown_s: 120       # demo reset at most this often (whole site)
+  summary_per_session_per_h: 6
+  summary_global_per_h: 60
+  max_patients: 12            # admitted patients (each runs a simulator); protects a small server
+  banner: "Public demo — simulated data, research prototype"

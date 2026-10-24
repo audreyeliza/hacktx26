@@ -420,7 +420,8 @@ Work in this order. Each milestone must pass its check before moving on. Commit 
     (runs `.venv/bin/python -m server.app`, restarts on failure, code read-only, only `data/`
     writable), `deploy/push_to_pi.sh` (Mac → `audreybolyard@audreybolyard.local:~/hacktx` via rsync;
     `.env` only with `--env`). **Do not deploy to any cloud server yet.**
-    - **PUBLIC_DEMO mode: not specified yet** — waiting for the team's spec before building it.
+    - **PUBLIC_DEMO mode (§20)** for a public server: `deploy/PUBLIC_DEMO.md` (Vultr Ubuntu,
+      systemd `deploy/breathwatch-public.service`, Caddy `deploy/Caddyfile.example`, .TECH DNS).
 
 ## 15. Conventions
 
@@ -851,3 +852,33 @@ Cursor's agent mocks these endpoints from the examples above. Mocks must cover: 
 patients, a disconnected live device (`link_ok: false`), a patient with `rr: null`
 (`flags: ["no_clean_source"]`), a `single_source` patient, an escalated tier-3 alert, a
 `cached: true` summary, and `401` → redirect to `/login`.
+
+## 20. PUBLIC_DEMO mode (approved)
+
+For putting the demo on the public internet (deployment notes: `deploy/PUBLIC_DEMO.md`).
+Implemented in `server/public_demo.py` + `server/app.py` + `server/patients.py`; settings in
+`config.yaml` → `public_demo`.
+
+1. **On with env `PUBLIC_DEMO=1`** (or `public_demo.enabled: true`).
+2. **Simulated beds only:** no UDP or serial listener and no bedside commands; the seeded live bed
+   becomes a looping `public_demo.live_bed_scenario` (`demo`) simulator, also in a database made
+   by a non-public run. Creating or switching a patient to a live device → `400`.
+3. **Admin locked:** `POST /api/source`, `GET /api/serial/ports`, `POST /api/record/start` → `403`
+   ("… is disabled in the public demo"). `POST /api/demo/reset` at most once per
+   `reset_cooldown_s` (120 s) for the whole site → `429` with `Retry-After`.
+4. **Login:** demo-role sign-in buttons only; `POST /api/auth/login` → `403`.
+5. **Gemini cost control:** summaries limited per session (`summary_per_session_per_h`, 6) and
+   globally (`summary_global_per_h`, 60). Over a limit → the latest cached summary for that patient
+   and kind (`cached: true`), or `429` if none is cached.
+6. **Banner** "Public demo — simulated data, research prototype" on every page: the server inserts
+   `<div class="public-demo-banner" role="note">` right after `<body>` in each page it serves
+   (so it is there whatever the frontend does; the frontend may restyle the class).
+7. **Bound to `127.0.0.1`** (`public_demo.http_host`) behind an HTTPS reverse proxy (Caddy); uvicorn
+   trusts `X-Forwarded-*` only from `public_demo.proxy_ips`.
+
+Additions needed to make the seven points safe (decided while implementing):
+- The session cookie is `Secure` in public mode (HTTPS only).
+- The ward is capped at `max_patients` (12) admitted patients (each runs a simulator); more → `429`.
+- `GET /api/public-config` (no sign-in): `{"public_demo": bool, "banner": str|null,
+  "password_login": bool, "live_device": bool}` so the frontend can hide the password form and the
+  live-device option.

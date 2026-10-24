@@ -334,8 +334,11 @@ records the reasoning and smaller choices.
 - The service is sandboxed (`ProtectSystem=strict`, `ProtectHome=read-only`, only `data/` writable,
   `NoNewPrivileges`), so bytecode caching is off and matplotlib's cache lives in `data/`.
 - `.env` is never rsynced; `push_to_pi.sh --env` copies it separately with mode 600.
-- **PUBLIC_DEMO:** requested "as specified", but no spec exists in AGENTS.md, NOTES.md or the
-  rest of the repo. Not built; proposal sent to the team.
+- **PUBLIC_DEMO:** the 7-point proposal was approved and is built (AGENTS.md §20). Three additions
+  were needed to make it safe: `Secure` cookie, a 12-patient ward cap (each patient runs a
+  simulator — protects a 1 vCPU server), and `GET /api/public-config` for the frontend. The
+  banner is injected server-side into every page so it holds without frontend changes.
+  Pins checked for the VPS: `requirements.txt` resolves on Python 3.12 and 3.14 x86_64.
 
 ## Clinical app shell contract (§19) — choices made while writing it
 

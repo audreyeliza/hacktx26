@@ -276,6 +276,19 @@ class LLMCfg:
 
 
 @dataclass(frozen=True)
+class PublicDemoCfg:
+    enabled: bool
+    live_bed_scenario: str
+    http_host: str
+    proxy_ips: str
+    reset_cooldown_s: float
+    summary_per_session_per_h: int
+    summary_global_per_h: int
+    max_patients: int
+    banner: str
+
+
+@dataclass(frozen=True)
 class Config:
     contract: ContractCfg
     network: NetworkCfg
@@ -293,6 +306,7 @@ class Config:
     ward: WardCfg
     record: RecordCfg
     llm: LLMCfg
+    public_demo: PublicDemoCfg
 
 
 def _build(cls: type, raw: dict[str, Any], where: str) -> Any:

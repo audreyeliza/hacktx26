@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from server.config import Config
 from server.ingest import Ingest, SimulatorSource, Stream
 from server.pipeline import Pipeline, public_event
+from server.public_demo import simulated_device
 from server.simulator import SCENARIO_NAMES, Simulator
 from server.store import Store
 
@@ -263,10 +264,11 @@ class PatientRuntime:
 # --------------------------------------------------------------------------- ward
 
 class Ward:
-    def __init__(self, cfg: Config, store: Store, ingest: Ingest) -> None:
+    def __init__(self, cfg: Config, store: Store, ingest: Ingest, public: bool = False) -> None:
         self.cfg = cfg
         self.store = store
         self.ingest = ingest
+        self.public = public          # PUBLIC_DEMO (§20): simulated beds only, capped ward size
         self.runtimes: dict[str, PatientRuntime] = {}
         self.rng = random.Random(cfg.simulator.seed)
         self.alert_seq = 0
@@ -278,6 +280,11 @@ class Ward:
     async def start(self) -> None:
         if not self.store.patients():
             await self.seed()
+        if self.public:   # a database from a non-public run may still have the live bed
+            for p in self.store.patients("admitted"):
+                if p["device"]["kind"] == "live":
+                    self.store.save_patient({**p, "device": simulated_device(self.cfg)})
+                    log.info("public demo: %s (bed %s) now simulated", p["id"], p["bed"])
         for p in self.store.patients("admitted"):
             await self._start_runtime(p, backfill=True)
 
@@ -287,6 +294,8 @@ class Ward:
 
     async def seed(self) -> None:
         for rec in self.cfg.ward.seed:
+            if self.public and rec["device"]["kind"] == "live":
+                rec = {**rec, "device": simulated_device(self.cfg)}
             self._insert(PatientCreate.model_validate(rec))
         log.info("seeded default ward (%d patients)", len(self.cfg.ward.seed))
 
@@ -325,6 +334,8 @@ class Ward:
 
     # ---- CRUD
     def _check_conflicts(self, bed: str, device: dict[str, Any], exclude: str | None = None) -> None:
+        if self.public and device["kind"] == "live":
+            raise WardError(400, "the live wearable is disabled in the public demo; use a simulator scenario")
         for p in self.store.patients("admitted"):
             if p["id"] == exclude:
                 continue
@@ -336,6 +347,9 @@ class Ward:
     def _insert(self, body: PatientCreate) -> dict[str, Any]:
         device = body.device.model_dump()
         self._check_conflicts(body.bed, device)
+        if self.public and len(self.store.patients("admitted")) >= self.cfg.public_demo.max_patients:
+            raise WardError(429, f"the public demo ward is full ({self.cfg.public_demo.max_patients} patients); "
+                                 "discharge someone first")
         patient = {
             "id": self.store.next_patient_id(), "name": body.name, "bed": body.bed,
             "risk_factors": body.risk_factors.model_dump(), "device": device, "notes": body.notes,

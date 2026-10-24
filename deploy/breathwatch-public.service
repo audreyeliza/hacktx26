@@ -1,0 +1,45 @@
+# BreathWatch PUBLIC_DEMO on a small Ubuntu server (deploy/PUBLIC_DEMO.md, AGENTS.md §20).
+# Install: sudo install -m 644 deploy/breathwatch-public.service /etc/systemd/system/
+# Simulated data only; reachable only through Caddy (HTTPS) on this machine.
+
+[Unit]
+Description=BreathWatch public demo (simulated data, research prototype)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=breathwatch
+Group=breathwatch
+WorkingDirectory=/opt/breathwatch
+Environment=PUBLIC_DEMO=1
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=MPLBACKEND=Agg
+Environment=MPLCONFIGDIR=/opt/breathwatch/data/.matplotlib
+# The app reads GEMINI_API_KEY from /opt/breathwatch/.env (mode 600, never logged).
+ExecStart=/opt/breathwatch/.venv/bin/python -m server.app
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+
+# Keep a small VPS healthy even if someone hammers the demo.
+MemoryMax=700M
+TasksMax=256
+
+# Hardening: code read-only, only data/ writable, no access to other users' files.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/breathwatch/data
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,19 @@
+# /etc/caddy/Caddyfile for the BreathWatch public demo (deploy/PUBLIC_DEMO.md).
+# Replace demo.example.tech with your .TECH (sub)domain. Caddy gets and renews the HTTPS
+# certificate automatically once DNS points here and ports 80/443 are open.
+# WebSockets (/ws/ward, /ws/patients/…) are proxied by reverse_proxy without extra config.
+
+demo.example.tech {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8000
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		X-Frame-Options "DENY"
+		-Server
+	}
+	log {
+		output file /var/log/caddy/breathwatch.log
+	}
+}

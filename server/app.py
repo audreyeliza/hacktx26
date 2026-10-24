@@ -20,7 +20,7 @@ from typing import Any
 
 import numpy as np
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -29,6 +29,7 @@ from server.config import ROOT, Config, load_config
 from server.ingest import CH, Ingest, list_serial_ports, local_ips
 from server.llm import LLMUnavailable, Summarizer, render_chart
 from server.patients import PatientCreate, PatientRuntime, PatientUpdate, Ward, WardError
+from server.public_demo import RateLimiter, inject_banner, is_enabled
 from server.record import Recorder
 from server.simulator import SCENARIO_NAMES
 from server.store import Store
@@ -47,9 +48,12 @@ class State:
 
     def __init__(self, cfg: Config) -> None:
         self.cfg = cfg
+        self.public = is_enabled(cfg)    # PUBLIC_DEMO (AGENTS.md §20)
         self.store = Store(cfg.store.path)
         self.ingest = Ingest(cfg)
-        self.ward = Ward(cfg, self.store, self.ingest)
+        self.ward = Ward(cfg, self.store, self.ingest, public=self.public)
+        self.limiter = RateLimiter()
+        self.last_reset_t = 0.0
         self.sessions = Sessions(cfg.auth)
         self.recorder = Recorder(cfg)
         self.ingest.on_packet = self.recorder.on_packet
@@ -270,14 +274,19 @@ def create_app(cfg: Config | None = None, source: str | None = None) -> FastAPI:
         state = State(cfg)
         app.state.bw = state
         await state.ward.start()
-        try:
-            await state.ingest.set_source(source or cfg.ingest.default_source)
-        except ValueError as exc:
-            log.error("%s; starting with no source", exc)
-        for ip in local_ips():
-            log.info("Dashboard: http://%s:%d   (Pico SERVER_IP=%s, UDP port %d)",
-                     ip, cfg.network.http_port, ip, cfg.network.udp_port)
-        tasks = [asyncio.create_task(processing_loop(state)), asyncio.create_task(bedside_loop(state))]
+        if state.public:
+            log.warning("PUBLIC DEMO mode: simulated beds only, no UDP/serial listener, admin locked")
+        else:
+            try:
+                await state.ingest.set_source(source or cfg.ingest.default_source)
+            except ValueError as exc:
+                log.error("%s; starting with no source", exc)
+            for ip in local_ips():
+                log.info("Dashboard: http://%s:%d   (Pico SERVER_IP=%s, UDP port %d)",
+                         ip, cfg.network.http_port, ip, cfg.network.udp_port)
+        tasks = [asyncio.create_task(processing_loop(state))]
+        if not state.public:
+            tasks.append(asyncio.create_task(bedside_loop(state)))
         yield
         for task in tasks:
             task.cancel()
@@ -314,28 +323,36 @@ def create_app(cfg: Config | None = None, source: str | None = None) -> FastAPI:
     def admin_only(request: Request) -> dict[str, str]:
         return st().sessions.require(request, ADMIN)
 
+    def not_public(what: str) -> None:
+        if st().public:
+            raise HTTPException(403, f"{what} is disabled in the public demo")
+
     # ---- pages
-    def page(name: str) -> FileResponse:
+    def page(name: str) -> Response:
         path = WEB / name
         if not path.exists():
             raise HTTPException(404, f"page {name} not built yet")
+        if st().public:   # point 6: the banner is on every page, whatever the frontend does
+            return HTMLResponse(inject_banner(path.read_text(), cfg.public_demo.banner))
         return FileResponse(path)
 
     for route, name in PAGES.items():
         app.add_api_route(route, (lambda n=name: page(n)), methods=["GET"], include_in_schema=False)
 
     @app.get("/patients/{patient_id}", include_in_schema=False)
-    async def patient_page(patient_id: str) -> FileResponse:
+    async def patient_page(patient_id: str) -> Response:
         return page("patient.html")
 
     # ---- auth
     def _set_cookie(response: Response, user: dict[str, str]) -> None:
         token = st().sessions.create(user)
         response.set_cookie(cfg.auth.cookie_name, token, httponly=True, samesite="lax", path="/",
-                            max_age=int(cfg.auth.session_ttl_h * 3600))
+                            max_age=int(cfg.auth.session_ttl_h * 3600), secure=st().public)  # public: HTTPS
 
     @app.post("/api/auth/login")
     async def login(req: LoginRequest, response: Response) -> dict[str, Any]:
+        if st().public:
+            raise HTTPException(403, "password login is disabled in the public demo; use a demo sign-in button")
         user = st().sessions.check_password(req.username, req.password)
         if user is None:
             raise HTTPException(401, "wrong username or password")
@@ -360,6 +377,13 @@ def create_app(cfg: Config | None = None, source: str | None = None) -> FastAPI:
     @app.get("/api/auth/me")
     async def me(user: dict = Depends(signed_in)) -> dict[str, Any]:
         return {"user": user}
+
+    @app.get("/api/public-config")
+    async def public_config() -> dict[str, Any]:
+        """For the frontend (no sign-in needed): what this deployment allows (§20)."""
+        public = st().public
+        return {"public_demo": public, "banner": cfg.public_demo.banner if public else None,
+                "password_login": not public, "live_device": not public}
 
     @app.get("/api/auth/demo-accounts")
     async def demo_accounts() -> list[dict[str, str]]:
@@ -433,7 +457,17 @@ def create_app(cfg: Config | None = None, source: str | None = None) -> FastAPI:
         baseline = rt.pipeline.alerts.baseline() if rt else None
         return patient, now_t, baseline
 
-    async def _summary(patient_id: str, kind: str, alert_id: int | None = None) -> dict[str, Any]:
+    def _summary_allowed(request: Request) -> bool:
+        """Point 5: per-session and global Gemini limits in the public demo."""
+        if not st().public:
+            return True
+        pd = cfg.public_demo
+        session = request.cookies.get(cfg.auth.cookie_name) or (request.client.host if request.client else "?")
+        return st().limiter.check([(("summary", session), pd.summary_per_session_per_h, 3600.0),
+                                   (("summary", "*"), pd.summary_global_per_h, 3600.0)])
+
+    async def _summary(patient_id: str, kind: str, alert_id: int | None = None,
+                       request: Request | None = None) -> dict[str, Any]:
         patient, now_t, baseline = _summary_context(patient_id)
         alert = None
         if kind == "explain":
@@ -441,22 +475,28 @@ def create_app(cfg: Config | None = None, source: str | None = None) -> FastAPI:
             alert = (rt.pipeline.alerts.alerts.get(alert_id) if rt else None) or st().store.alert(alert_id)
             if alert is None or alert["patient_id"] != patient_id:
                 raise HTTPException(404, f"no alert {alert_id} for patient {patient_id}")
+        if request is not None and not _summary_allowed(request):
+            cached = st().store.cached_summary(patient_id, kind, str(alert_id) if kind == "explain" else None)
+            if cached is None:
+                raise HTTPException(429, "summary limit reached in the public demo and nothing cached yet; try later")
+            return {**cached, "cached": True}
         try:
             return await st().summarizer.summarize(kind, patient, now_t, baseline, alert)
         except LLMUnavailable as exc:
             raise HTTPException(503, str(exc)) from exc
 
     @app.post("/api/patients/{patient_id}/summary/explain/{alert_id}")
-    async def summary_explain(patient_id: str, alert_id: int, user: dict = Depends(signed_in)) -> dict[str, Any]:
-        return await _summary(patient_id, "explain", alert_id)
+    async def summary_explain(patient_id: str, alert_id: int, request: Request,
+                              user: dict = Depends(signed_in)) -> dict[str, Any]:
+        return await _summary(patient_id, "explain", alert_id, request)
 
     @app.post("/api/patients/{patient_id}/summary/overnight")
-    async def summary_overnight(patient_id: str, user: dict = Depends(signed_in)) -> dict[str, Any]:
-        return await _summary(patient_id, "overnight")
+    async def summary_overnight(patient_id: str, request: Request, user: dict = Depends(signed_in)) -> dict[str, Any]:
+        return await _summary(patient_id, "overnight", request=request)
 
     @app.post("/api/patients/{patient_id}/summary/handoff")
-    async def summary_handoff(patient_id: str, user: dict = Depends(signed_in)) -> dict[str, Any]:
-        return await _summary(patient_id, "handoff")
+    async def summary_handoff(patient_id: str, request: Request, user: dict = Depends(signed_in)) -> dict[str, Any]:
+        return await _summary(patient_id, "handoff", request=request)
 
     @app.get("/api/patients/{patient_id}/summary/chart.png")
     async def summary_chart(patient_id: str, user: dict = Depends(signed_in)) -> Response:
@@ -471,6 +511,7 @@ def create_app(cfg: Config | None = None, source: str | None = None) -> FastAPI:
 
     @app.post("/api/source")
     async def post_source(req: SourceRequest, user: dict = Depends(admin_only)) -> dict[str, Any]:
+        not_public("source switching")
         try:
             await st().ingest.set_source(req.source, req.speed, req.loop)
         except ValueError as exc:
@@ -479,10 +520,12 @@ def create_app(cfg: Config | None = None, source: str | None = None) -> FastAPI:
 
     @app.get("/api/serial/ports")
     async def serial_ports(user: dict = Depends(admin_only)) -> list[dict[str, Any]]:
+        not_public("serial ports")
         return list_serial_ports(cfg.ingest.serial_pico_vid)
 
     @app.post("/api/record/start")
     async def record_start(req: RecordRequest, user: dict = Depends(admin_only)) -> dict[str, Any]:
+        not_public("recording")
         try:
             return {"recording": st().recorder.start(req.label)}
         except ValueError as exc:
@@ -493,7 +536,14 @@ def create_app(cfg: Config | None = None, source: str | None = None) -> FastAPI:
         return {"recording": None, "file": st().recorder.stop()}
 
     @app.post("/api/demo/reset")
-    async def demo_reset(req: ResetRequest | None = None, user: dict = Depends(admin_only)) -> dict[str, Any]:
+    async def demo_reset(req: ResetRequest | None = None, user: dict = Depends(admin_only)) -> Any:
+        if st().public:
+            wait = st().last_reset_t + cfg.public_demo.reset_cooldown_s - time.time()
+            if wait > 0:
+                return JSONResponse({"detail": f"demo reset is rate-limited in the public demo; try again in "
+                                               f"{wait:.0f} s"}, status_code=429,
+                                    headers={"Retry-After": str(int(wait) + 1)})
+            st().last_reset_t = time.time()
         await st().ward.reset(reseed=bool(req and req.reseed_ward))
         return st().ward.listing()
 
@@ -564,7 +614,11 @@ def main() -> None:
     import uvicorn
 
     cfg = load_config()
-    uvicorn.run(app, host=cfg.network.http_host, port=cfg.network.http_port, log_level="info")
+    if is_enabled(cfg):   # point 7: only the local reverse proxy can reach us; trust its headers
+        uvicorn.run(app, host=cfg.public_demo.http_host, port=cfg.network.http_port, log_level="info",
+                    proxy_headers=True, forwarded_allow_ips=cfg.public_demo.proxy_ips)
+    else:
+        uvicorn.run(app, host=cfg.network.http_host, port=cfg.network.http_port, log_level="info")
 
 
 if __name__ == "__main__":
