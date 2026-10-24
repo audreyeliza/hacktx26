@@ -168,6 +168,51 @@ records the reasoning and smaller choices.
   the §19.3 Event shape; `GET /api/events` and WebSocket `event` messages added; the dashboard
   lists events and shows an apnea in progress.
 
+## Smaller choices (M6)
+
+- **Alert policy beyond §8 (please review):**
+  - **Latching:** tier ≥ 2 alerts stay active until acknowledged, even if the condition clears;
+    tier 1 resolves on its own after the condition has been clear for 30 s (`clear_s`).
+  - **A gate failure resets persistence** (rather than pausing it): conservative per rule 4.
+  - **`sensor_check` (tier 1) is the one rule that fires on non-clean data**: it is about the
+    device, not the patient, so it cannot be gated on signal quality.
+  - **Tier-0 log entries:** when a rate condition would alarm but fails the gate, a tier-0
+    "Not alarmed: … but signal motion (confidence 0.9)" alert is stored (status `resolved`, at
+    most once per cooldown), so the timeline shows what the smart monitor suppressed.
+  - **One active alert per kind;** a higher tier escalates it in place (counted as a new
+    alarm); the same tier only re-words it for apneas ("Apnea in progress 21 s" → "Apnea 25 s").
+    Cooldown (120 s) runs from the last raise, acknowledge or resolve.
+  - **Apnea tier 3 fires from the in-progress report** (M5 provisional tail), at ~25 s of a
+    24 s apnea in the demo; the final event then re-words the same alert. Hypopneas do not alarm
+    (§8 has no hypopnea rule).
+  - **Trend rule:** rr ≤ 70 % of baseline, and rr was ≥ 90 % of baseline somewhere in the last
+    30 min (so the drop happened within 30 min), held 30 s → tier 2.
+  - **Baseline** = median eligible rr of the first 10 min (median so far after 2 min). In the
+    demo the decline starts inside the first 10 min, so the baseline is 14/min, not 15–16.
+  - **Escalation** after 60 s unacknowledged at tier 3, timed in sample time (equal to wall time
+    at 1×). Acknowledge time = current sample time.
+  - **Before M6.5 there is no login:** acknowledgements record `acknowledged_by =
+    {"username": "bedside", "display_name": "Bedside (no login yet)", "role": "nurse"}`.
+- **Naive monitor** = a plain fixed-threshold monitor: rate = peak count over 15 s (RR) / 10 s
+  (HR) with a fixed 200-count prominence, no range checks, no quality gating; every onset of
+  RR < 8 or > 25, HR < 50 or > 120, airflow flat (band-passed std < 150 counts over 10 s) counts
+  as one alarm. An earlier version reused our rate estimator (with its range checks) and was
+  unrealistically quiet during motion.
+- **Results on `demo` (20 min):** smart 7 alarms vs naive 23; motion phase smart 0 vs naive 7;
+  tier 3 on the decline (rate 5/min for 35 s) and on the 24 s apnea, both escalated when not
+  acknowledged; tier 2 cluster after 5 apneas; normal 0 vs 0.
+- **Storage:** stdlib `sqlite3` in WAL mode, `data/breathwatch.db`; vitals every 5 s, events,
+  alerts (every version saved), `llm_cache` table created for M7. JSON blob per row plus indexed
+  columns. Tests use `:memory:`.
+- **Bedside command** every 2 s: color from tier, buzzer while an unacknowledged tier-3 alert is
+  active. Sent over the link the data arrives on: UDP to the Pico's source address on port 5006,
+  or one JSON line on the serial port (AGENTS.md §4 updated: firmware must also read stdin).
+- **Dashboard:** Cursor's agent is mid-way through the §19 frontend in the working tree
+  (`index.html` is now the ward overview), so the M6 UI (alert panel, ack button, naive-vs-smart
+  counter, baseline line) was **not** added to the old single-patient page. The data is ready:
+  `/api/state` now has `tier`, `tier_reason`, `baseline`, `active_alerts`, `monitors`,
+  `bedside`; `/ws/live` sends `alert` messages; `GET /api/alerts`, `POST /api/alerts/{id}/ack`.
+
 ## Clinical app shell contract (§19) — choices made while writing it
 
 - **Both WebSockets:** a light `/ws/ward` (summaries + alert pushes) for the overview and a heavy
@@ -187,6 +232,21 @@ records the reasoning and smaller choices.
   (trend chart history), `GET /api/patients/{id}/summary/chart.png`, `GET /api/admin/device`,
   `GET /api/auth/demo-accounts` (login buttons without exposing passwords).
 - **Bed uniqueness:** two admitted patients cannot share a bed (409).
+
+## Smaller choices (clinical frontend, Cursor)
+
+- **`USE_MOCK`** at the top of `web/mock.js` is the only switch. `true`: in-memory ward, with
+  sessionStorage standing in for the HttpOnly `bw_session` cookie (page script cannot set that
+  cookie). `false`: same-origin fetch with credentials and the §19 WebSockets.
+- **Clock-based physiology.** Rates and waveforms are functions of time, so opening a patient does
+  not reset the ward. Plain demo reset clears alerts, events and rate history; "restore the default
+  ward" puts the six scripted beds back. The mock does not run the Python detector.
+- **Red is only tier 3** — the urgent count, urgent row, tier-3 alert, and the charge-nurse line.
+  Discharge and form errors use ink and teal.
+- **Routes.** Links use the §19 paths. Until M6.5, FastAPI still serves only `/` and `/static/`,
+  so `/login`, `/patients/…` and `/admin/device` 404 there. `GET /` now returns the ward shell
+  (the single-patient M2–M5 page is the patient detail view). Click-through of the other pages
+  needs a static server that maps those paths, or the M6.5 routes.
 
 ## Open questions
 

@@ -24,12 +24,14 @@ from server.config import ROOT, Config, load_config
 from server.ingest import CH, Ingest, list_serial_ports, local_ips
 from server.pipeline import LIVE_PATIENT_ID, Pipeline, public_event
 from server.simulator import SCENARIO_NAMES
+from server.store import Store
 
 log = logging.getLogger(__name__)
 WEB = ROOT / "web"
 
 # Display name -> raw channel for the live waveforms.
 WAVES = {"effort": "pressure", "airflow": "therm", "pulse": "pulse"}
+TIER_COLORS = ("green", "yellow", "orange", "red")  # bedside LED (AGENTS.md §4)
 
 
 class State:
@@ -37,6 +39,7 @@ class State:
 
     def __init__(self, cfg: Config) -> None:
         self.cfg = cfg
+        self.store = Store(cfg.store.path)
         self.ingest = Ingest(cfg)
         self.started = time.time()
         self.step = int(cfg.signals.rate_interval_s * self.ingest.fs)  # samples between updates
@@ -45,9 +48,11 @@ class State:
         # (vitals_seq, sample time, rr_fused) for the trend chart
         self.trend: deque[tuple[int, float, float | None]] = deque(
             maxlen=int(cfg.live.trend_window_s / cfg.signals.rate_interval_s))
-        self.pipeline = Pipeline(cfg, self.ingest.fs, LIVE_PATIENT_ID)
+        self.pipeline = Pipeline(cfg, self.ingest.fs, LIVE_PATIENT_ID, self.store)
         self.event_seq = 0
         self.event_log: deque[tuple[int, dict[str, Any]]] = deque(maxlen=cfg.events.recent_max)
+        self.alert_seq = 0
+        self.alert_log: deque[tuple[int, dict[str, Any]]] = deque(maxlen=cfg.events.recent_max)
         self._next_idx = self.step
         self._generation = self.ingest.generation
 
@@ -59,8 +64,9 @@ class State:
             self._next_idx = self.step
             self.vitals = None
             self.trend.clear()
-            self.pipeline = Pipeline(self.cfg, ing.fs, LIVE_PATIENT_ID)
+            self.pipeline = Pipeline(self.cfg, ing.fs, LIVE_PATIENT_ID, self.store)
             self.event_log.clear()
+            self.alert_log.clear()
         total = ing.buffers.total
         if total - self._next_idx > ing.buffers.capacity:  # fell far behind: skip ahead
             self._next_idx = (total // self.step) * self.step
@@ -71,6 +77,8 @@ class State:
             for e in res.events:
                 self.event_seq += 1
                 self.event_log.append((self.event_seq, public_event(e)))
+            for a in res.alerts:
+                self._log_alert(a)
             self.vitals_seq += 1
             self.vitals = v
             self.trend.append((self.vitals_seq, v["t"], v["rr_fused"]))
@@ -80,6 +88,28 @@ class State:
 
     def trend_since(self, seq: int) -> list[tuple[float, float | None]]:
         return [(t, rr) for s, t, rr in self.trend if s > seq]
+
+    def _log_alert(self, alert: dict[str, Any]) -> None:
+        self.alert_seq += 1
+        self.alert_log.append((self.alert_seq, dict(alert)))
+        if alert["tier"] >= 1:
+            log.info("alert %s tier %d %s: %s", alert["id"], alert["tier"], alert["status"], alert["reason"])
+
+    def alerts_since(self, seq: int) -> list[dict[str, Any]]:
+        return [a for s, a in self.alert_log if s > seq]
+
+    def acknowledge(self, alert_id: int, note: str | None) -> dict[str, Any] | None:
+        t = self.ingest.sample_time(self.ingest.buffers.total) or time.time()
+        alert = self.pipeline.alerts.acknowledge(alert_id, None, note, t)
+        if alert is not None:
+            self._log_alert(alert)
+            self.pipeline.alerts.take_changes()
+            return alert
+        return self.store.alert(alert_id)  # from an earlier run: already ended
+
+    def bedside_command(self) -> dict[str, Any]:
+        tier, _ = self.pipeline.alerts.tier()
+        return {"cmd": "status", "color": TIER_COLORS[tier], "buzzer": self.pipeline.alerts.buzzer()}
 
     def events_since(self, seq: int) -> list[dict[str, Any]]:
         return [e for s, e in self.event_log if s > seq]
@@ -94,13 +124,30 @@ class State:
             "vitals": self.vitals,
             "recent_events": self.recent_events(10),
             "ongoing_event": self.pipeline.ongoing,
+            "tier": self.pipeline.alerts.tier()[0],
+            "tier_reason": self.pipeline.alerts.tier()[1],
+            "baseline": self.pipeline.alerts.baseline(),
+            "active_alerts": self.pipeline.alerts.active_alerts(),
+            "monitors": self.pipeline.monitors(),
+            "bedside": self.bedside_command(),
             "network": {"ips": local_ips(), "http_port": self.cfg.network.http_port,
                         "udp_port": self.cfg.network.udp_port},
         }
 
     async def reset(self) -> None:
         self.ingest.reset()
+        self.store.clear_patient(LIVE_PATIENT_ID)
         self.process_pending()
+
+
+async def bedside_loop(state: State) -> None:
+    """Keep the Pico's LED/buzzer in sync (it blinks blue after 10 s without a command)."""
+    while True:
+        try:
+            state.ingest.send_command(state.bedside_command())
+        except Exception:
+            log.exception("bedside command failed")
+        await asyncio.sleep(state.cfg.bedside.command_interval_s)
 
 
 async def processing_loop(state: State) -> None:
@@ -110,6 +157,10 @@ async def processing_loop(state: State) -> None:
         except Exception:  # keep the server alive; one bad window must not stop monitoring
             log.exception("processing failed")
         await asyncio.sleep(0.1)
+
+
+class AckRequest(BaseModel):
+    note: str | None = None
 
 
 class SourceRequest(BaseModel):
@@ -147,6 +198,7 @@ async def live_socket(ws: WebSocket, state: State) -> None:
                         "scenarios": list(SCENARIO_NAMES), "state": state.snapshot()})
     last_vitals = state.vitals_seq
     last_event = state.event_seq
+    last_alert = state.alert_seq
     last_end: int | None = None
     generation = state.ingest.generation
     next_status = 0.0
@@ -167,6 +219,10 @@ async def live_socket(ws: WebSocket, state: State) -> None:
                 for e in state.events_since(last_event if state.event_seq > last_event else 0):
                     await ws.send_json({"type": "event", "event": e})
                 last_event = state.event_seq
+            if state.alert_seq != last_alert:
+                for a in state.alerts_since(last_alert if state.alert_seq > last_alert else 0):
+                    await ws.send_json({"type": "alert", "alert": a})
+                last_alert = state.alert_seq
             end = ing.buffers.total
             start = max(end - window_n if last_end is None else max(last_end, end - window_n), 0)
             if end > start:
@@ -197,10 +253,12 @@ def create_app(cfg: Config | None = None, source: str | None = None) -> FastAPI:
         for ip in local_ips():
             log.info("Dashboard: http://%s:%d   (Pico SERVER_IP=%s, UDP port %d)",
                      ip, cfg.network.http_port, ip, cfg.network.udp_port)
-        processor = asyncio.create_task(processing_loop(state))
+        tasks = [asyncio.create_task(processing_loop(state)), asyncio.create_task(bedside_loop(state))]
         yield
-        processor.cancel()
+        for task in tasks:
+            task.cancel()
         await state.ingest.stop()
+        state.store.close()
 
     app = FastAPI(title="BreathWatch", lifespan=lifespan)
     app.mount("/static", StaticFiles(directory=WEB), name="static")
@@ -235,6 +293,17 @@ def create_app(cfg: Config | None = None, source: str | None = None) -> FastAPI:
     @app.get("/api/events")
     async def get_events(limit: int = 100) -> dict[str, Any]:
         return {"events": st().recent_events(limit)}
+
+    @app.get("/api/alerts")
+    async def get_alerts(status: str | None = None, limit: int = 100) -> dict[str, Any]:
+        return {"alerts": st().store.alerts(LIVE_PATIENT_ID, status=status, limit=limit)}
+
+    @app.post("/api/alerts/{alert_id}/ack")
+    async def ack_alert(alert_id: int, req: AckRequest | None = None) -> dict[str, Any]:
+        alert = st().acknowledge(alert_id, req.note if req else None)
+        if alert is None:
+            raise HTTPException(404, f"no alert {alert_id}")
+        return alert
 
     @app.get("/api/serial/ports")
     async def serial_ports() -> list[dict[str, Any]]:

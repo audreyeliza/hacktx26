@@ -12,7 +12,9 @@ lines over with `loop.call_soon_threadsafe`.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import queue
 import socket
 import threading
 import time
@@ -222,6 +224,16 @@ class Ingest:
             self.source = None
             self.source_spec = "none"
 
+    def send_command(self, cmd: dict[str, Any]) -> bool:
+        """Bedside status to the Pico over the link the data arrives on (AGENTS.md §4):
+        UDP to the learned Pico address on the command port, or one JSON line on serial."""
+        src = self.source
+        if isinstance(src, SerialSource):
+            return src.write_line(json.dumps(cmd))
+        if isinstance(src, UdpSource) and self.pico_addr is not None:
+            return src.send(json.dumps(cmd).encode(), (self.pico_addr[0], self.cfg.network.command_port))
+        return False
+
     def link_ok(self, now: float | None = None) -> bool:
         last = self.stats.last_arrival
         return last is not None and (now or time.time()) - last < self.cfg.ingest.link_timeout_s
@@ -300,6 +312,12 @@ class UdpSource:
             self._transport.close()
             self._transport = None
 
+    def send(self, data: bytes, addr: tuple[str, int]) -> bool:
+        if self._transport is None:
+            return False
+        self._transport.sendto(data, addr)
+        return True
+
 
 def list_serial_ports(pico_vid: int) -> list[dict[str, Any]]:
     from serial.tools import list_ports
@@ -333,6 +351,18 @@ class SerialSource:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._outbox: queue.Queue[bytes] = queue.Queue(maxsize=16)
+        self._connected = False
+
+    def write_line(self, line: str) -> bool:
+        """Queue one line for the Pico (written by the reader thread, which owns the port)."""
+        if not self._connected:
+            return False
+        try:
+            self._outbox.put_nowait(line.encode() + b"\n")
+        except queue.Full:
+            return False
+        return True
 
     async def start(self) -> None:
         self._loop = asyncio.get_running_loop()
@@ -364,7 +394,11 @@ class SerialSource:
                                    timeout=icfg.serial_read_timeout_s, exclusive=True) as ser:
                     self.status = f"connected to {port}"
                     log.info("serial: %s", self.status)
-                    self._read_lines(ser, port)
+                    self._connected = True
+                    try:
+                        self._read_lines(ser, port)
+                    finally:
+                        self._connected = False
             except (serial.SerialException, OSError) as exc:
                 msg = str(exc)
                 if "lock" in msg.lower() or "busy" in msg.lower():
@@ -378,6 +412,8 @@ class SerialSource:
         max_len = self.ingest.cfg.ingest.serial_max_line_bytes
         buf = bytearray()
         while not self._stop.is_set():
+            while not self._outbox.empty():
+                ser.write(self._outbox.get_nowait())
             chunk = ser.read(max(1, ser.in_waiting))
             if not chunk:
                 continue

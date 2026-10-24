@@ -1,4 +1,4 @@
-"""One patient's processing pipeline: vitals -> events (-> alerts in milestone 6).
+"""One patient's processing pipeline: vitals -> events -> alerts (+ the naive monitor).
 
 The app keeps one Pipeline per patient (milestone 6.5); tests drive it directly.
 """
@@ -10,6 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from server.alerts import AlertEngine, NaiveMonitor
 from server.config import Config
 from server.events import EventDetector
 from server.ingest import RingBuffer
@@ -29,33 +30,43 @@ class StepResult:
     vitals: dict[str, Any]
     events: list[dict[str, Any]] = field(default_factory=list)   # events that ended this step
     ongoing: dict[str, Any] | None = None                        # low-airflow run in progress
+    alerts: list[dict[str, Any]] = field(default_factory=list)   # alerts created/changed this step
+    naive: list[str] = field(default_factory=list)               # naive-monitor alarms that started
 
 
 class Pipeline:
-    def __init__(self, cfg: Config, fs: float, patient_id: str) -> None:
+    def __init__(self, cfg: Config, fs: float, patient_id: str, store: Any = None) -> None:
         self.cfg = cfg
         self.fs = fs
         self.patient_id = patient_id
+        self.store = store
         self.detector = EventDetector(cfg, fs)
+        self.alerts = AlertEngine(cfg, patient_id, store)
+        self.naive = NaiveMonitor(cfg)
         self.events: deque[dict[str, Any]] = deque(maxlen=cfg.events.recent_max)
         self.ongoing: dict[str, Any] | None = None
         self._next_event_id = 1
 
     def step(self, buffers: RingBuffer, end: int, sample_time: SampleTime) -> StepResult:
         vitals, block = analyze(buffers, end, self.fs, self.cfg)
-        vitals["t"] = sample_time(end)
+        t = sample_time(end)
+        vitals["t"] = t
         new = [self._finish(e, sample_time) for e in self.detector.update(block, end, vitals["posture"])]
         self.events.extend(new)
         ongoing = self.detector.ongoing()
         if ongoing is not None:
             ongoing = {**ongoing, "start_t": sample_time(ongoing["start_idx"])}
         self.ongoing = ongoing
-        return StepResult(vitals, new, ongoing)
+        naive = self.naive.update(buffers.window(end, int(self.cfg.signals.rate_window_s * self.fs)), self.fs, t)
+        changed = self.alerts.update(vitals, ongoing, new, t)
+        if self.store is not None:
+            self.store.add_vitals(self.patient_id, vitals)
+        return StepResult(vitals, new, ongoing, changed, naive)
 
     def _finish(self, e: dict[str, Any], sample_time: SampleTime) -> dict[str, Any]:
         """Detector output -> the Event shape of AGENTS.md §19.3 (plus sample indices)."""
         event = {
-            "id": self._next_event_id,
+            "id": None,
             "patient_id": self.patient_id,
             "type": e["type"],
             "start_t": sample_time(e["start_idx"]),
@@ -68,11 +79,15 @@ class Pipeline:
             "start_idx": e["start_idx"],
             "end_idx": e["end_idx"],
         }
-        self._next_event_id += 1
+        if self.store is not None:
+            event["id"] = self.store.add_event(public_event(event))
+        else:
+            event["id"] = self._next_event_id
+            self._next_event_id += 1
         return event
 
     def recent_events(self, limit: int = 10) -> list[dict[str, Any]]:
         return list(self.events)[-limit:][::-1]
 
-    def baseline(self) -> dict[str, float] | None:
-        return self.detector.baseline()
+    def monitors(self) -> dict[str, Any]:
+        return self.alerts.counts(self.naive.alarms)

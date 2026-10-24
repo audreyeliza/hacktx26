@@ -132,3 +132,48 @@ events:                       # AGENTS.md section 7 (Events); amplitudes relativ
   clear_conf: 0.9             # confidence when the effort ratio is clearly on one side
   ambiguous_conf: 0.5         # effort between the central and obstructive limits
   recent_max: 200             # events kept in memory per patient
+
+alerts:                       # AGENTS.md section 8 — DEMO values, not clinical
+  gate_quality_conf: 0.6      # only quality "clean" with confidence >= this can raise tier >= 1
+  gate_rr_conf: 0.6           # rr-based rules also need rr_conf >= this
+  rr_tier1_below: 10
+  rr_tier1_persist_s: 60
+  rr_tier2_below: 8
+  rr_tier2_persist_s: 60
+  rr_tier3_below: 6
+  rr_tier3_persist_s: 30
+  baseline_window_s: 600      # patient baseline rr = median of the first 10 min (clean data)
+  baseline_min_s: 120         # until then: median since admission once this much exists
+  trend_drop_frac: 0.30       # rr >= 30 % below baseline ...
+  trend_window_s: 1800        # ... and the drop happened within 30 min ...
+  trend_recent_frac: 0.9      # ... i.e. rr was >= 90 % of baseline somewhere in that window
+  trend_persist_s: 30
+  apnea_tier1_s: 10
+  apnea_tier3_s: 20
+  cluster_count: 5
+  cluster_window_s: 900
+  sensor_off_s: 60            # sensor off this long -> tier 1 "check sensor"
+  cooldown_s: 120             # same kind not re-raised within this unless the tier increases
+  escalate_s: 60              # tier 3 not acknowledged this long -> escalated (charge nurse)
+  latch_tier: 2               # alerts at/above this tier stay active until acknowledged
+  clear_s: 30                 # a non-latching alert resolves after its condition is clear this long
+  conf_high: 0.8              # wording in reasons: "signal confidence high" at/above this
+
+naive:                        # the comparison monitor: fixed thresholds, no gating/persistence/cooldown
+  rr_low: 8
+  rr_high: 25
+  hr_low: 50
+  hr_high: 120
+  flat_s: 10                  # airflow flat this long
+  flat_std_counts: 150        # band-passed thermistor std below this = "flat"
+  rr_window_s: 15
+  hr_window_s: 10
+  peak_prominence_counts: 200 # fixed peak threshold, raw ADC counts
+  rr_min_gap_s: 1.0
+  hr_min_gap_s: 0.3
+
+bedside:
+  command_interval_s: 2       # resend the LED/buzzer status this often (Pico blinks blue after 10 s)
+
+store:
+  path: data/breathwatch.db

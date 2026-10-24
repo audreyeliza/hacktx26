@@ -6,7 +6,7 @@ Honest record of which tool or agent produced each part of the project.
 
 - **Claude Code** (Anthropic, model Claude Opus 5.5) builds the server, simulator and processing
   (milestones 1–7).
-- **Cursor's agent** builds the firmware (milestone 8) and polishes the dashboard later.
+- **Cursor** (Grok, in the Cursor IDE) builds the clinical frontend against §19 with mock data, in parallel with the processing milestones. Firmware (milestone 8) is still later.
 - Both agents read `AGENTS.md` as the single source of truth. Agreed decisions are written into
   `AGENTS.md` itself (not only `NOTES.md`) so both agents follow the same rules.
 - The human team reviews each milestone's plan, makes the design calls and builds the hardware.
@@ -24,6 +24,8 @@ Honest record of which tool or agent produced each part of the project.
 | Sat evening | Claude Code | docs | AGENTS.md §19 "Clinical app shell": API contract (auth, patients, per-patient endpoints, ward + patient WebSockets, pages, permissions, config) so Cursor's agent can build the frontend against mocks in parallel; milestone 6.5 added; design rule 8 (risk factors never change thresholds). |
 | Sat evening | Claude Code | M4 | `server/quality.py` (v0 rules per 10 s segment: flat/clipped channels, motion energy, belt/accel disagreement; posture), motion/off segments masked out of the rate window, tests vs ground truth incl. "apneas are never sensor_off". |
 | Sat evening | Claude Code | M5 | `server/events.py` (Hilbert-envelope state machine at 1 s, rolling baseline, obstructive/central/mixed/hypopnea, final + provisional lags), `server/pipeline.py`, events on API/WebSocket/dashboard, tests scored against ground truth over several seeds. Two iterations driven by per-second traces (baseline freeze, window-edge leakage). |
+| Sat evening | Cursor (Grok) | frontend | Clinical shell in `web/` against §19: `mock.js` (`USE_MOCK`), login, ward census, patient detail, add-patient, admin Device & data. Six scripted beds with live rates and waveforms. Did not edit `server/`. |
+| Sat evening | Claude Code | M6 | `server/alerts.py` (tiers, persistence, baseline, trend, apnea + cluster, sensor check, cooldown, latching, escalation; naive comparison monitor), `server/store.py` (SQLite), bedside LED/buzzer command over UDP or serial, alerts API + WebSocket messages, tests incl. demo acceptance. Committed only backend files: Cursor's agent had uncommitted §19 frontend work in `web/`, left untouched. |
 
 ## Prompts that worked
 
@@ -33,3 +35,21 @@ Honest record of which tool or agent produced each part of the project.
   before any code existed.
 - "Make sure the USB serial input source works well" — led to a pty-based test that drives the
   real pyserial code path with split lines, CRLF and REPL noise, no hardware needed.
+- "Build the clinical app frontend in web/ … against the §19 API contract. Use a mock data module
+  (web/mock.js) … behind a single switch." — Cursor built the pages to the JSON shapes in §19
+  without waiting for the M6.5 backend, and without editing `server/`.
+
+## Smaller choices (clinical frontend, Cursor)
+
+- `USE_MOCK` at the top of `web/mock.js` is the only switch. `true` uses the in-memory ward
+  (sessionStorage stands in for the HttpOnly `bw_session` cookie, which page script cannot set).
+  `false` uses same-origin `fetch` with credentials and the §19 WebSockets.
+- Rates and waveforms are functions of the clock, so moving between pages does not reset the story.
+  Demo reset clears alerts, events and rate history. "Restore the default six-bed ward" puts the
+  scripted findings back. The mock does not run the Python detector, so it cannot re-raise alerts
+  on its own after a plain reset.
+- Red is used only for tier 3 (the urgent count, the urgent row, the tier-3 alert, and the
+  "escalated to charge nurse" line). Discharge and form errors use ink and teal.
+- Page links are the §19 paths. Until M6.5, FastAPI still serves only `/` and `/static/`, so
+  `/login`, `/patients/…` and `/admin/device` 404 on the current server. A static file server that
+  maps those paths is enough to click through the mock.

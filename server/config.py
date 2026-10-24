@@ -162,6 +162,59 @@ class EventsCfg:
 
 
 @dataclass(frozen=True)
+class AlertsCfg:
+    gate_quality_conf: float
+    gate_rr_conf: float
+    rr_tier1_below: float
+    rr_tier1_persist_s: float
+    rr_tier2_below: float
+    rr_tier2_persist_s: float
+    rr_tier3_below: float
+    rr_tier3_persist_s: float
+    baseline_window_s: float
+    baseline_min_s: float
+    trend_drop_frac: float
+    trend_window_s: float
+    trend_recent_frac: float
+    trend_persist_s: float
+    apnea_tier1_s: float
+    apnea_tier3_s: float
+    cluster_count: int
+    cluster_window_s: float
+    sensor_off_s: float
+    cooldown_s: float
+    escalate_s: float
+    latch_tier: int
+    clear_s: float
+    conf_high: float
+
+
+@dataclass(frozen=True)
+class NaiveCfg:
+    rr_low: float
+    rr_high: float
+    hr_low: float
+    hr_high: float
+    flat_s: float
+    flat_std_counts: float
+    rr_window_s: float
+    hr_window_s: float
+    peak_prominence_counts: float
+    rr_min_gap_s: float
+    hr_min_gap_s: float
+
+
+@dataclass(frozen=True)
+class BedsideCfg:
+    command_interval_s: float
+
+
+@dataclass(frozen=True)
+class StoreCfg:
+    path: str
+
+
+@dataclass(frozen=True)
 class Config:
     contract: ContractCfg
     network: NetworkCfg
@@ -171,6 +224,10 @@ class Config:
     signals: SignalsCfg
     quality: QualityCfg
     events: EventsCfg
+    alerts: AlertsCfg
+    naive: NaiveCfg
+    bedside: BedsideCfg
+    store: StoreCfg
 
 
 def _build(cls: type, raw: dict[str, Any], where: str) -> Any:

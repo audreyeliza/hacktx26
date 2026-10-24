@@ -113,6 +113,13 @@ CTRL_REG1 `0x2A`. Data registers `0x01`–`0x06`, 12-bit left-justified, 1024 co
 ### Pi → Pico (bedside commands)
 
 - UDP to the Pico at port `5006`, JSON: `{"cmd": "status", "color": "green|yellow|orange|red", "buzzer": false}`.
+- **Over USB serial (decided):** when the Pico's data arrives over serial, the server writes the
+  same JSON object as **one line** (`\n`-terminated) to the serial port; the firmware must read
+  stdin (non-blocking, e.g. `select.poll` on `sys.stdin`) as well as UDP 5006.
+- The server sends the current status every 2 s (`bedside.command_interval_s`): color from the
+  live patient's tier (0 green, 1 yellow, 2 orange, 3 red), `buzzer` true while an
+  unacknowledged tier-3 alert is active. The UDP target is the source address of the Pico's
+  packets (no configuration).
 - Pico applies the latest command; if no command for 10 s, it blinks blue (link lost).
 
 ## 5. Repository layout

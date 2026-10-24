@@ -19,4 +19,4 @@ def with_overrides(cfg: Config, **sections: dict) -> Config:
 @pytest.fixture
 def test_cfg(cfg) -> Config:
     """Config safe for tests: ephemeral UDP port so nothing clashes with a running server."""
-    return with_overrides(cfg, network={"udp_port": 0})
+    return with_overrides(cfg, network={"udp_port": 0}, store={"path": ":memory:"})
