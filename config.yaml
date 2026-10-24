@@ -233,10 +233,13 @@ llm:                          # AGENTS.md §10 — Google Gemini; key from the e
   provider: gemini            # gemini | fake (tests / offline development)
   model: gemini-3.8-flash     # fast model for explanations and the overnight summary
   handoff_model: gemini-3.8-flash   # optionally a stronger model for the SBAR note
+  fallback_models: [gemini-3.5-flash, gemini-3.5-flash-lite]  # tried in order on overload (5xx) / quota (429)
+  attempts_per_model: 1       # fail fast and move to the next model
   api_key_env: GEMINI_API_KEY
-  timeout_s: 20
+  timeout_s: 15               # per request; the whole fallback chain is capped at total_timeout_s
+  total_timeout_s: 40
   temperature: 0.2
-  max_output_tokens: 1200
+  max_output_tokens: 4096     # thinking tokens can count toward this; keep headroom
   explain_window_s: 900       # data around an alert for "explain"
   overnight_window_s: 43200   # at most the last 12 h for overnight / handoff
   max_events_listed: 15

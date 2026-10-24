@@ -293,6 +293,28 @@ records the reasoning and smaller choices.
   Checked once against the real API with a deliberately invalid key: `API_KEY_INVALID` → cached
   response in 0.2 s.
 
+## Gemini key and real-API check (Sat night)
+
+- **Key loading:** `GEMINI_API_KEY` from the environment, else from `.env` at the repo root
+  (python-dotenv `dotenv_values`, so `.env` does not leak into `os.environ`). Only the source
+  ("environment" / ".env") is logged; errors are passed through `_redact` before logging or
+  returning. `.env` is in `.gitignore` (checked with `git check-ignore`).
+- **Model id verified** with `models.list()`: `gemini-3.8-flash` exists and supports
+  generateContent (also available: `gemini-4-argon`, `gemini-3.7-flash`, `gemini-3.5-flash`,
+  `gemini-3.5-flash-lite`, …). No change needed.
+- **But at test time the newest models were overloaded:** `gemini-3.8-flash` returned 504
+  DEADLINE_EXCEEDED even for "Reply OK" (28.6 s), `gemini-3.7-flash` / `gemini-flash-latest` 503
+  "high demand"; `gemini-3.5-flash` answered in 1.4 s, `gemini-3.5-flash-lite` in 0.7 s.
+  Added **fallback models** tried on 5xx / 429 only (auth errors do not walk the list):
+  `[gemini-3.5-flash, gemini-3.5-flash-lite]`, one SDK attempt each, 15 s per request, 40 s total
+  deadline enforced inside the provider. `Summary.model` records the model that answered.
+  `max_output_tokens` raised to 4096 because thinking tokens can count toward it.
+- **Real outputs** (demo scenario, simulated): overnight summary and SBAR both answered by
+  `gemini-3.5-flash-lite` after the two busier models failed, ~30 s each (mostly waiting on the
+  busy models). The chart description matched the rendered chart.
+  **Demo-day choice for the team:** keep `gemini-3.8-flash` first (best model, but ~15 s extra
+  per summary while it is overloaded) or put `gemini-3.5-flash` first in `config.yaml`.
+
 ## Clinical app shell contract (§19) — choices made while writing it
 
 - **Both WebSockets:** a light `/ws/ward` (summaries + alert pushes) for the overview and a heavy

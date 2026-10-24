@@ -286,7 +286,8 @@ stored except in record mode.
 
 We are entering MLH "Best Use of Gemini API", so Gemini is the LLM provider.
 
-- Use the official `google-genai` Python SDK. Key from env `GEMINI_API_KEY`; model name from
+- Use the official `google-genai` Python SDK. Key from env `GEMINI_API_KEY` (or `.env` at the repo
+  root via python-dotenv; the environment wins; never logged); model name from
   `config.yaml` (`llm.model`). Check the current Gemini API docs for the right model id
   (use a fast "flash" model for explanations, optionally a "pro" model for the handoff note).
   Never hardcode the key.

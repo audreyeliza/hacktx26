@@ -19,12 +19,13 @@ import logging
 import os
 import time
 from collections import Counter
+from pathlib import Path
 from typing import Any, Protocol
 
 import numpy as np
 from pydantic import BaseModel
 
-from server.config import Config
+from server.config import ROOT, Config
 from server.store import Store
 
 log = logging.getLogger(__name__)
@@ -84,6 +85,18 @@ class Provider(Protocol):
 
 # --------------------------------------------------------------------------- providers
 
+def load_api_key(env_name: str, dotenv_path: Path | None = None) -> tuple[str | None, str]:
+    """(key, where) — the environment variable wins over the repo-root .env file. The key itself
+    is never logged; only `where` ("environment", ".env" or "missing") is."""
+    key = os.environ.get(env_name)
+    if key:
+        return key, "environment"
+    from dotenv import dotenv_values
+    path = dotenv_path or ROOT / ".env"
+    key = dotenv_values(path).get(env_name) if path.exists() else None
+    return (key, ".env") if key else (None, "missing")
+
+
 class GeminiProvider:
     """Google Gemini via the official google-genai SDK. The key comes from the environment."""
 
@@ -91,19 +104,27 @@ class GeminiProvider:
         self.cfg = cfg.llm
         self.name = "gemini"
         self._client: Any = None
+        self.last_model: str | None = None   # the model that actually answered
 
     def model_for(self, kind: str) -> str:
         return self.cfg.handoff_model if kind == "handoff" else self.cfg.model
 
+    def models_for(self, kind: str) -> list[str]:
+        first = self.model_for(kind)
+        return [first] + [m for m in self.cfg.fallback_models if m != first]
+
     def _get_client(self) -> Any:
         if self._client is None:
-            key = os.environ.get(self.cfg.api_key_env)
+            key, where = load_api_key(self.cfg.api_key_env)
             if not key:
-                raise LLMError(f"{self.cfg.api_key_env} is not set")
+                raise LLMError(f"{self.cfg.api_key_env} is not set (environment or .env)")
+            log.info("Gemini key loaded from %s", where)
             from google import genai
             from google.genai import types
-            self._client = genai.Client(api_key=key,
-                                        http_options=types.HttpOptions(timeout=int(self.cfg.timeout_s * 1000)))
+            self._client = genai.Client(api_key=key, http_options=types.HttpOptions(
+                timeout=int(self.cfg.timeout_s * 1000),
+                retry_options=types.HttpRetryOptions(attempts=self.cfg.attempts_per_model, initial_delay=0.5,
+                                                     max_delay=2.0)))
         return self._client
 
     def summarize(self, kind: str, digest: dict[str, Any], images: list[bytes]) -> str:
@@ -116,14 +137,30 @@ class GeminiProvider:
             max_output_tokens=self.cfg.max_output_tokens,
             **({"response_mime_type": "application/json", "response_schema": SBAR} if kind == "handoff" else {}),
         )
-        try:
-            response = client.models.generate_content(model=self.model_for(kind), contents=parts, config=config)
-        except Exception as exc:   # network, auth, quota, timeout: the caller falls back to the cache
-            raise LLMError(f"{type(exc).__name__}: {exc}") from exc
-        text = (response.text or "").strip()
-        if not text:
-            raise LLMError("empty response")
-        return text
+        failures: list[str] = []
+        deadline = time.monotonic() + self.cfg.total_timeout_s - 1.0
+        for model in self.models_for(kind):
+            remaining = deadline - time.monotonic()
+            if remaining < 2.0:
+                failures.append(f"{model}: skipped (out of time)")
+                break
+            config.http_options = types.HttpOptions(timeout=int(min(self.cfg.timeout_s, remaining) * 1000))
+            try:
+                response = client.models.generate_content(model=model, contents=parts, config=config)
+            except Exception as exc:   # network, auth, quota, timeout: the caller falls back to the cache
+                msg = _redact(f"{model}: {type(exc).__name__}: {exc}", self.cfg.api_key_env)
+                failures.append(msg)
+                if _overloaded(exc):
+                    log.warning("Gemini %s busy, trying the next model", model)
+                    continue
+                raise LLMError(msg) from exc
+            text = (response.text or "").strip()
+            if not text:
+                failures.append(f"{model}: empty response")
+                continue
+            self.last_model = model
+            return text
+        raise LLMError(" | ".join(failures))
 
 
 class FakeProvider:
@@ -147,6 +184,18 @@ class FakeProvider:
                                "recommendation": "Bedside check; clinician review.",
                                "chart_observation": "Trend shown.", "discrepancies": []})
         return f"[{kind}] Bed {digest['patient']['bed']}: research prototype summary."
+
+
+def _overloaded(exc: Exception) -> bool:
+    """Server busy (5xx) or rate limited (429): worth trying another model. Auth/bad-request is not."""
+    code = getattr(exc, "code", None)
+    return isinstance(code, int) and (code >= 500 or code == 429)
+
+
+def _redact(text: str, env_name: str) -> str:
+    """Belt and braces: never let the key reach a log line or an HTTP error detail."""
+    key, _ = load_api_key(env_name)
+    return text.replace(key, "[redacted]") if key else text
 
 
 def make_provider(cfg: Config) -> Provider:
@@ -296,9 +345,11 @@ class Summarizer:
             images = [await asyncio.to_thread(render_chart, self.cfg, self.store, patient, now_t, baseline)]
         try:
             text = await asyncio.wait_for(asyncio.to_thread(self.provider.summarize, kind, digest, images),
-                                          timeout=self.cfg.llm.timeout_s + 2)
+                                          timeout=self.cfg.llm.total_timeout_s)
             summary = self._shape(kind, pid, alert, text)
         except (LLMError, asyncio.TimeoutError, ValueError) as exc:
+            if isinstance(exc, asyncio.TimeoutError):
+                exc = LLMError(f"no answer within {self.cfg.llm.total_timeout_s:.0f} s")
             log.warning("LLM %s for %s failed (%s); using cache", kind, pid, exc)
             cached = self.store.cached_summary(pid, kind, key if kind == "explain" else None)
             if cached is None:
@@ -316,7 +367,8 @@ class Summarizer:
             text = (f"Situation: {data.situation}\nBackground: {data.background}\nAssessment: {data.assessment}\n"
                     f"Recommendation: {data.recommendation}\nChart: {data.chart_observation}\n"
                     f"Chart vs data discrepancies: {disc}")
-        model = self.provider.model_for(kind) if hasattr(self.provider, "model_for") else self.provider.name
+        model = getattr(self.provider, "last_model", None) or (
+            self.provider.model_for(kind) if hasattr(self.provider, "model_for") else self.provider.name)
         return {"kind": kind, "patient_id": pid, "alert_id": alert["id"] if alert else None, "text": text,
                 "sbar": sbar, "model": model, "cached": False, "created_t": time.time()}
 

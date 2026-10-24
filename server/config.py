@@ -251,8 +251,11 @@ class LLMCfg:
     provider: str
     model: str
     handoff_model: str
+    fallback_models: list[str]
+    attempts_per_model: int
     api_key_env: str
     timeout_s: float
+    total_timeout_s: float
     temperature: float
     max_output_tokens: int
     explain_window_s: float

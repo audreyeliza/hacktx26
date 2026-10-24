@@ -108,7 +108,8 @@ def test_cache_fallback_on_failure(cfg):
 
 def test_bad_or_missing_key_falls_back_without_network(cfg, monkeypatch):
     """Acceptance (simulated outage): Gemini cannot be reached -> latest cached summary."""
-    monkeypatch.delenv(cfg.llm.api_key_env, raising=False)
+    import server.llm
+    monkeypatch.setattr(server.llm, "load_api_key", lambda *a, **k: (None, "missing"))  # ignore a real .env
     store = Store(":memory:")
     run(Summarizer(cfg, store, FakeProvider()).summarize("overnight", PATIENT, time.time()))
     out = run(Summarizer(cfg, store, GeminiProvider(cfg)).summarize("overnight", PATIENT, time.time()))
@@ -120,7 +121,7 @@ def test_timeout_falls_back(cfg):
         def summarize(self, kind, digest, images):
             time.sleep(3)
             return "late"
-    fast_cfg = with_overrides(cfg, llm={"timeout_s": 0.1})
+    fast_cfg = with_overrides(cfg, llm={"timeout_s": 0.1, "total_timeout_s": 0.2})
     store = Store(":memory:")
     run(Summarizer(fast_cfg, store, FakeProvider()).summarize("overnight", PATIENT, time.time()))
     out = run(Summarizer(fast_cfg, store, Slow()).summarize("overnight", PATIENT, time.time()))
@@ -175,3 +176,73 @@ def test_503_when_down_and_nothing_cached(client):
     client.state_.summarizer.provider = FakeProvider(fail=True)
     r = client.post("/api/patients/p3/summary/handoff")
     assert r.status_code == 503 and "no cached handoff" in r.json()["detail"]
+
+
+def test_api_key_environment_wins_over_dotenv(tmp_path, monkeypatch):
+    from server.llm import load_api_key
+    env = tmp_path / ".env"
+    env.write_text("TEST_BW_KEY=from-dotenv\n")
+    monkeypatch.delenv("TEST_BW_KEY", raising=False)
+    assert load_api_key("TEST_BW_KEY", env) == ("from-dotenv", ".env")
+    monkeypatch.setenv("TEST_BW_KEY", "from-env")
+    assert load_api_key("TEST_BW_KEY", env) == ("from-env", "environment")
+    monkeypatch.delenv("TEST_BW_KEY")
+    assert load_api_key("TEST_BW_KEY", tmp_path / "missing.env") == (None, "missing")
+
+
+def test_key_is_never_logged(cfg, monkeypatch, caplog):
+    import server.llm
+    secret = "AIzaFAKE-not-a-real-key-123"
+    monkeypatch.setattr(server.llm, "load_api_key", lambda *a, **k: (secret, "environment"))
+
+    class Boom:
+        class models:
+            @staticmethod
+            def generate_content(**kw):
+                raise RuntimeError(f"request failed for key={secret}")
+    prov = GeminiProvider(cfg)
+    prov._client = Boom()
+    store = Store(":memory:")
+    run(Summarizer(cfg, store, FakeProvider()).summarize("overnight", PATIENT, time.time()))
+    with caplog.at_level("DEBUG"):
+        out = run(Summarizer(cfg, store, prov).summarize("overnight", PATIENT, time.time()))
+    assert out["cached"] is True
+    assert secret not in caplog.text and "[redacted]" in caplog.text
+
+
+def test_overloaded_model_falls_through_to_next(cfg, monkeypatch):
+    """503 'high demand' on the first model -> the next configured model answers."""
+    import server.llm
+
+    class Busy(Exception):
+        code = 503
+
+    class Denied(Exception):
+        code = 400
+
+    tried = []
+
+    class Client:
+        class models:
+            @staticmethod
+            def generate_content(model, contents, config):
+                tried.append(model)
+                if model == cfg.llm.model:
+                    raise Busy("This model is currently experiencing high demand")
+                return type("R", (), {"text": "Chart: flat. Summary: ok. Discrepancies: none"})()
+
+    monkeypatch.setattr(server.llm, "load_api_key", lambda *a, **k: ("k", "environment"))
+    prov = GeminiProvider(cfg)
+    prov._client = Client()
+    out = run(Summarizer(cfg, Store(":memory:"), prov).summarize("overnight", PATIENT, time.time()))
+    assert out["cached"] is False and tried == [cfg.llm.model, cfg.llm.fallback_models[0]]
+    assert out["model"] == cfg.llm.fallback_models[0]
+
+    def denied(model, contents, config):
+        tried.append(model)
+        raise Denied("API key not valid")
+    tried.clear()
+    Client.models.generate_content = staticmethod(denied)
+    with pytest.raises(LLMUnavailable):
+        run(Summarizer(cfg, Store(":memory:"), prov).summarize("overnight", PATIENT, time.time()))
+    assert tried == [cfg.llm.model]          # auth errors do not walk the fallback list
