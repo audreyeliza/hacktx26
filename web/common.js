@@ -1,0 +1,218 @@
+import { api, openSocket, SCENARIOS } from "/static/mock.js";
+
+export { api, openSocket, ApiError, USE_MOCK, SCENARIOS, RECORD_LABELS } from "/static/mock.js";
+
+export const TIER_NAME = ["Log", "Watch", "Notify", "Urgent"];
+
+const ROLE_LABEL = { nurse: "Nurse", physician: "Physician", admin: "Admin" };
+
+export function $(id) { return document.getElementById(id); }
+
+export function esc(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[ch]));
+}
+
+export function fmt(value, digits = 0) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "—";
+  return Number(value).toFixed(digits);
+}
+
+export function fmtTime(t) {
+  if (t === null || t === undefined) return "—";
+  return new Date(t * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+export function fmtWhen(t) {
+  if (t === null || t === undefined) return "—";
+  return new Date(t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+export function tierName(tier) { return TIER_NAME[tier] || "Log"; }
+
+export function qualityLabel(q) {
+  return { clean: "Clean", motion: "Motion", sensor_off: "Sensor off", unknown: "Unknown" }[q] || "—";
+}
+
+export function postureLabel(p) {
+  return { supine: "Supine", left: "Left side", right: "Right side", upright: "Upright", unknown: "Unknown" }[p] || "—";
+}
+
+export function eventLabel(type) {
+  return { obstructive: "Obstructive", central: "Central", mixed: "Mixed", hypopnea: "Hypopnea" }[type] || type || "—";
+}
+
+export function scenarioLabel(name) {
+  return name ? String(name).replaceAll("_", " ") : "—";
+}
+
+export function riskItems(rf) {
+  if (!rf) return [];
+  const items = [];
+  if (rf.opioids) items.push("Opioids");
+  if (rf.supplemental_o2) items.push("Supplemental O₂");
+  if (rf.osa === "suspected") items.push("OSA suspected");
+  if (rf.osa === "known") items.push("OSA known");
+  if (rf.age_over_65) items.push("Age over 65");
+  return items;
+}
+
+export function canEdit(user) { return user.role === "nurse" || user.role === "admin"; }
+
+export function patientIdFromLocation() {
+  const match = location.pathname.match(/^\/patients\/([^/]+)\/?$/);
+  if (!match || match[1] === "new") return null;
+  return decodeURIComponent(match[1]);
+}
+
+export function safeNext(raw) {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\") || raw.startsWith("/login")) return "/";
+  return raw;
+}
+
+export async function boot() {
+  const { user } = await api("/api/auth/me");
+  renderChrome(user);
+  return user;
+}
+
+export function renderChrome(user) {
+  const el = $("chrome");
+  if (!el) return;
+  const path = location.pathname;
+  const links = [
+    { href: "/", label: "Ward", show: true, on: path === "/" },
+    { href: "/patients/new", label: "Add patient", show: canEdit(user), on: path === "/patients/new" },
+    { href: "/admin/device", label: "Device & data", show: user.role === "admin", on: path.startsWith("/admin") },
+  ];
+  el.innerHTML = `
+    <a class="brand" href="/">BreathWatch</a>
+    <nav class="nav" aria-label="Sections">
+      ${links.filter((l) => l.show).map((l) => `
+        <a href="${l.href}" ${l.on ? 'aria-current="page"' : ""}>${l.label}</a>
+      `).join("")}
+    </nav>
+    <div class="session">
+      <span class="chip">Research prototype</span>
+      <span class="session__who"><b>${esc(user.display_name)}</b><small>${esc(ROLE_LABEL[user.role] || user.role)}</small></span>
+      <button type="button" class="quiet" data-signout>Sign out</button>
+    </div>`;
+  el.querySelector("[data-signout]").addEventListener("click", async () => {
+    await api("/api/auth/logout", { method: "POST", redirectOn401: false });
+    location.href = "/login";
+  });
+}
+
+export function liveSocket(path, handlers) {
+  let current = null;
+  let stopped = false;
+  let retry = 500;
+  const start = () => {
+    if (stopped) return;
+    current = openSocket(path, {
+      onMessage: handlers.onMessage,
+      onClose(code) {
+        if (stopped) return;
+        if (code === 4401) {
+          location.replace("/login?next=" + encodeURIComponent(location.pathname + location.search));
+          return;
+        }
+        handlers.onTerminal?.(code);
+        if (code === 4403 || code === 4404 || code === 1000) return;
+        setTimeout(start, retry);
+        retry = Math.min(retry * 2, 5000);
+      },
+    });
+  };
+  start();
+  return { close() { stopped = true; current?.close(); } };
+}
+
+export function showError(el, err) {
+  if (!el) return;
+  if (!err) { el.hidden = true; el.textContent = ""; return; }
+  el.hidden = false;
+  el.textContent = err.detail || err.message || "Something went wrong";
+}
+
+export function admissionFields(patient, liveHolder) {
+  const rf = patient?.risk_factors || { opioids: false, supplemental_o2: false, osa: "none", age_over_65: false };
+  const device = patient?.device || { kind: "simulator", scenario: "normal", speed: 1, loop: true };
+  const blocked = Boolean(liveHolder && (!patient || liveHolder.id !== patient.id));
+  const liveOn = device.kind === "live" && !blocked;
+  const scenario = device.scenario || "normal";
+  const options = SCENARIOS.map((name) => `
+    <option value="${esc(name)}" ${name === scenario ? "selected" : ""}>${esc(scenarioLabel(name))}</option>
+  `).join("");
+  const hint = blocked
+    ? `The live wearable is already assigned to bed ${liveHolder.bed}, ${liveHolder.name}.`
+    : "Packets whose device id matches this assignment are routed here.";
+  return `
+    <div class="fields">
+      <label>Name <input name="name" required maxlength="80" value="${esc(patient?.name || "")}"></label>
+      <label>Bed <input name="bed" required maxlength="8" value="${esc(patient?.bed || "")}"></label>
+    </div>
+    <label>Notes
+      <textarea name="notes" rows="2" maxlength="280">${esc(patient?.notes || "")}</textarea>
+    </label>
+    <fieldset>
+      <legend>Risk factors</legend>
+      <p class="fine">Context only. These never change alarm thresholds.</p>
+      <label class="check"><input type="checkbox" name="opioids" ${rf.opioids ? "checked" : ""}> Opioids</label>
+      <label class="check"><input type="checkbox" name="supplemental_o2" ${rf.supplemental_o2 ? "checked" : ""}> Supplemental oxygen</label>
+      <label class="check"><input type="checkbox" name="age_over_65" ${rf.age_over_65 ? "checked" : ""}> Age over 65</label>
+      <label>Obstructive sleep apnea
+        <select name="osa">
+          <option value="none" ${rf.osa === "none" ? "selected" : ""}>None recorded</option>
+          <option value="suspected" ${rf.osa === "suspected" ? "selected" : ""}>Suspected</option>
+          <option value="known" ${rf.osa === "known" ? "selected" : ""}>Known</option>
+        </select>
+      </label>
+    </fieldset>
+    <fieldset>
+      <legend>Device</legend>
+      <label class="check"><input type="radio" name="kind" value="simulator" ${liveOn ? "" : "checked"}> Simulator scenario</label>
+      <div class="fields device-sim">
+        <label>Scenario <select name="scenario">${options}</select></label>
+        <label>Speed <input name="speed" type="number" min="0" step="0.5" value="${esc(device.speed ?? 1)}"></label>
+        <label class="check"><input type="checkbox" name="loop" ${device.loop === false ? "" : "checked"}> Loop</label>
+      </div>
+      <label class="check"><input type="radio" name="kind" value="live" ${liveOn ? "checked" : ""} ${blocked ? "disabled" : ""}> Live wearable</label>
+      <label>Device id <input name="device_id" value="${esc(device.device_id || "patch-01")}" ${blocked ? "disabled" : ""}></label>
+      <p class="fine" id="live-hint">${esc(hint)}</p>
+    </fieldset>`;
+}
+
+export function readAdmission(form) {
+  const data = new FormData(form);
+  const kind = data.get("kind");
+  const device = kind === "live"
+    ? { kind: "live", device_id: String(data.get("device_id") || "").trim() }
+    : {
+      kind: "simulator",
+      scenario: String(data.get("scenario") || "normal"),
+      speed: Number(data.get("speed")),
+      loop: data.get("loop") === "on",
+    };
+  return {
+    name: String(data.get("name") || "").trim(),
+    bed: String(data.get("bed") || "").trim(),
+    notes: String(data.get("notes") || "").trim(),
+    risk_factors: {
+      opioids: data.get("opioids") === "on",
+      supplemental_o2: data.get("supplemental_o2") === "on",
+      osa: String(data.get("osa") || "none"),
+      age_over_65: data.get("age_over_65") === "on",
+    },
+    device,
+  };
+}
+
+export function riskHtml(rf) {
+  const items = riskItems(rf);
+  const chips = items.length
+    ? items.map((item) => `<span class="chip">${esc(item)}</span>`).join("")
+    : `<span class="chip">No risk factors listed</span>`;
+  return `${chips}<p class="fine">Context only. Risk factors never change alarm thresholds.</p>`;
+}

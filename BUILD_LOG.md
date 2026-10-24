@@ -29,6 +29,7 @@ Honest record of which tool or agent produced each part of the project.
 | Sat night | Claude Code | follow-ups | `awaiting_ack` alert status; 1 s apnea watch + 1 s provisional lag (tier 3 at 21–22 s into an apnea, measured); demo apneas 32 s / 26 s; §19 Alert shape updated. |
 | Sat night | Claude Code | M6.5 | Multi-patient backend for §19: `server/auth.py`, `server/patients.py` (ward, per-patient runtimes, routing), `server/record.py`, Stream/Ingest split, all §19 endpoints + `/ws/ward` + `/ws/patients/{id}` + page routes + legacy aliases, ward backfill; `tests/test_ward.py` checks every documented shape. Read Cursor's `web/mock.js` (read-only) to match its real-API path. |
 | Sat night | Claude Code | M7 | `server/llm.py` (Gemini provider via google-genai, fake provider, digest builder, matplotlib trend chart sent as an image, SBAR structured output, cache fallback), per-patient + legacy summary endpoints, `tests/test_llm.py` (no network); bad-key fallback checked once against the real API. |
+| Sat night | Cursor (Grok) | frontend | Committed the clinical shell in `web/`: login, ward census, patient detail, add-patient, and admin Device & data. Built by Cursor against §19 with `mock.js` (`USE_MOCK` still on). Did not edit `server/`. |
 
 ## Prompts that worked
 

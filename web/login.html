@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f3f0e8">
+  <title>Sign in · BreathWatch</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='1' y='1' width='14' height='14' rx='3' fill='none' stroke='%231d5c54' stroke-width='1.5'/%3E%3Cpath d='M3 9.2c1.1-2 2.1-2 3.1 0s2 2 3.1 0 2.1-2 3.2 0' fill='none' stroke='%231d5c54' stroke-width='1.2'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="login">
+  <main class="login-card">
+    <p class="eyebrow">General ward</p>
+    <h1>BreathWatch</h1>
+    <p class="lede">Continuous breathing watch for the post-surgical ward.</p>
+    <p class="notice">Demo accounts — do not use real credentials.</p>
+    <div class="demo-grid" id="demo"></div>
+    <form id="login-form">
+      <label>Username <input name="username" autocomplete="username" required></label>
+      <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+      <p class="notice" id="login-error" hidden></p>
+      <div class="form-actions"><button class="primary" type="submit">Sign in</button></div>
+    </form>
+  </main>
+  <footer class="footer">Research prototype — not a medical device. Thresholds are for demonstration.</footer>
+  <script type="module" src="/static/login.js"></script>
+</body>
+</html>

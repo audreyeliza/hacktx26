@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f3f0e8">
+  <title>Patient · BreathWatch</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='1' y='1' width='14' height='14' rx='3' fill='none' stroke='%231d5c54' stroke-width='1.5'/%3E%3Cpath d='M3 9.2c1.1-2 2.1-2 3.1 0s2 2 3.1 0 2.1-2 3.2 0' fill='none' stroke='%231d5c54' stroke-width='1.2'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="top" id="chrome"><a class="brand" href="/">BreathWatch</a></header>
+  <main class="wrap" id="main">
+    <p class="crumbs"><a href="/">Ward</a></p>
+    <p class="notice" id="missing" hidden>No patient with this id. <a href="/">Back to the ward</a></p>
+    <div id="detail-root">
+      <header class="patient-head">
+        <div>
+          <p class="eyebrow" id="pt-bed">Bed</p>
+          <h1 id="pt-name">Loading…</h1>
+          <p class="fine" id="pt-assign"></p>
+        </div>
+        <p class="tier-flag" id="pt-tier" data-tier="0">—</p>
+      </header>
+      <p class="reason" id="pt-reason"></p>
+      <p class="notice" id="pt-status" hidden></p>
+      <div class="risk" id="pt-risk"></div>
+      <div class="detail">
+        <section class="panel tile" id="tile" data-tier="0" aria-label="Vitals">
+          <dl class="vitals">
+            <div class="vital"><dt>Resp. rate</dt><dd><span id="rr">—</span> <small>/min</small></dd></div>
+            <div class="vital"><dt>Heart rate</dt><dd><span id="hr">—</span> <small>bpm</small></dd></div>
+            <div class="vital"><dt>Posture</dt><dd id="posture">—</dd></div>
+            <div class="vital"><dt>Signal</dt><dd><span class="badge" id="quality">—</span></dd></div>
+          </dl>
+          <p class="fine" id="rr-detail"></p>
+        </section>
+        <section class="panel" aria-label="Alerts">
+          <h2>Alerts</h2>
+          <div id="alerts"></div>
+        </section>
+        <section class="panel span" aria-label="Live waveforms">
+          <h2>Live waveforms <small>last 30 seconds</small></h2>
+          <p class="link-note" id="link-note" hidden>No signal from the wearable.</p>
+          <div class="wave"><span class="wave__label">Effort (belt)</span><div class="wave__plot"><canvas id="wave-effort"></canvas></div></div>
+          <div class="wave"><span class="wave__label">Airflow</span><div class="wave__plot"><canvas id="wave-airflow"></canvas></div></div>
+          <div class="wave"><span class="wave__label">Pulse</span><div class="wave__plot"><canvas id="wave-pulse"></canvas></div></div>
+        </section>
+        <section class="panel span" aria-label="Breathing-rate trend">
+          <h2>Breathing rate <small>last 60 minutes</small></h2>
+          <p class="fine" id="baseline-note"></p>
+          <div class="trend"><canvas id="trend"></canvas></div>
+        </section>
+        <section class="panel" aria-label="Events">
+          <h2>Events</h2>
+          <p class="fine">Hypopnea here is simplified: oxygen saturation is not measured.</p>
+          <ol class="events" id="events"></ol>
+        </section>
+        <section class="panel" aria-label="Alarm comparison">
+          <h2>Smart vs naive</h2>
+          <div class="compare">
+            <div><p class="eyebrow">Smart</p><p class="big" id="m-smart">—</p><p class="fine" id="m-smart-rate"></p></div>
+            <div><p class="eyebrow">Naive</p><p class="big" id="m-naive">—</p><p class="fine" id="m-naive-rate"></p></div>
+          </div>
+          <p class="fine" id="m-since">The naive monitor uses fixed thresholds and does not check signal quality.</p>
+        </section>
+        <section class="panel span" aria-label="Clinical note">
+          <h2>Clinical note</h2>
+          <p class="fine">Written from monitor output the rules already produced. The language model does not decide alarms.</p>
+          <div class="ai-actions">
+            <button type="button" class="quiet" id="sum-explain">Explain latest alert</button>
+            <button type="button" class="quiet" id="sum-overnight">Overnight summary</button>
+            <button type="button" class="quiet" id="sum-handoff">Handoff note (SBAR)</button>
+          </div>
+          <p class="fine" id="ai-status"></p>
+          <p class="notice" id="ai-error" hidden></p>
+          <div id="summary"></div>
+          <img id="chart-img" class="chart-img" alt="Breathing-rate trend sent with the summary" hidden>
+          <p class="gemini">Powered by Gemini</p>
+        </section>
+        <section class="panel span" id="admission">
+          <h2>Admission</h2>
+          <p id="pt-notes"></p>
+          <p class="notice" id="role-note" hidden>This demo role can review and acknowledge. A nurse or admin changes the admission.</p>
+          <details id="edit"><summary>Edit admission</summary><form id="edit-form"></form></details>
+          <div id="discharge-box"></div>
+          <p class="notice" id="edit-error" hidden></p>
+        </section>
+      </div>
+    </div>
+  </main>
+  <footer class="footer">Research prototype — not a medical device. Thresholds are for demonstration.</footer>
+  <script src="/static/vendor/chart.umd.min.js"></script>
+  <script type="module" src="/static/patient.js"></script>
+</body>
+</html>

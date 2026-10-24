@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f3f0e8">
+  <title>Device &amp; data · BreathWatch</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='1' y='1' width='14' height='14' rx='3' fill='none' stroke='%231d5c54' stroke-width='1.5'/%3E%3Cpath d='M3 9.2c1.1-2 2.1-2 3.1 0s2 2 3.1 0 2.1-2 3.2 0' fill='none' stroke='%231d5c54' stroke-width='1.2'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="top" id="chrome"><a class="brand" href="/">BreathWatch</a></header>
+  <main class="wrap" id="main">
+    <p class="crumbs"><a href="/">Ward</a></p>
+    <div class="page-head">
+      <div>
+        <p class="eyebrow">Admin</p>
+        <h1>Device &amp; data</h1>
+        <p class="lede">The live wearable only. Each simulated bed keeps its own scenario.</p>
+      </div>
+    </div>
+    <p class="notice" id="forbidden" hidden>Device and data controls are limited to the demo admin account.</p>
+    <div class="stack" id="admin-root">
+      <section class="panel">
+        <h2>Connection</h2>
+        <p id="source-line">—</p>
+        <div class="statgrid" id="stats"></div>
+        <p class="fine" id="assigned"></p>
+      </section>
+      <section class="panel">
+        <h2>Source</h2>
+        <form id="source-form" class="fields">
+          <label>Input <select id="source-select" name="source"></select></label>
+          <label>Speed <input id="source-speed" name="speed" type="number" min="0" step="0.5" value="1"></label>
+          <label class="check"><input id="source-loop" name="loop" type="checkbox"> Loop simulator</label>
+          <div class="form-actions"><button class="primary" type="submit">Switch source</button></div>
+        </form>
+        <p class="notice" id="source-error" hidden></p>
+        <h3>Serial ports</h3>
+        <ul class="ports" id="ports"></ul>
+      </section>
+      <section class="panel">
+        <h2>Record</h2>
+        <p class="fine" id="rec-status">Not recording.</p>
+        <div class="labels" id="labels"></div>
+        <div class="form-actions"><button type="button" class="quiet" id="rec-stop" hidden>Stop recording</button></div>
+        <p class="notice" id="rec-error" hidden></p>
+      </section>
+      <section class="panel">
+        <h2>Demo reset</h2>
+        <p class="fine">Clears alerts, events, and rate history. Restoring the ward puts the six scripted beds back, including urgent findings.</p>
+        <form id="reset-form">
+          <label class="check"><input type="checkbox" name="reseed"> Restore the default six-bed ward</label>
+          <div class="form-actions"><button class="quiet" type="submit">Reset streams</button></div>
+        </form>
+        <p class="notice" id="reset-note" hidden></p>
+      </section>
+      <section class="panel">
+        <h2>Network</h2>
+        <p id="net">—</p>
+        <p class="fine" id="net-note"></p>
+      </section>
+    </div>
+  </main>
+  <footer class="footer">Research prototype — not a medical device. Thresholds are for demonstration.</footer>
+  <script type="module" src="/static/admin.js"></script>
+</body>
+</html>
