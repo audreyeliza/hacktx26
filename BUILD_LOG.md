@@ -21,6 +21,8 @@ Honest record of which tool or agent produced each part of the project.
 | Sat afternoon | Claude Code | docs | AGENTS.md: Mac as main server, Pi optional (Trixie), serial source behaviour, timeline anchoring wording, vendored Chart.js, M10 "calibrate supine" control. |
 | Sat afternoon | Claude Code | M2 | `server/ingest.py` (ring buffers, seq timeline with NaN gaps, UDP / USB serial / in-process simulator sources), `server/app.py` (REST, WebSocket, static), minimal `web/` dashboard, tests incl. serial over a pty. Checked in Chrome via the LAN address. |
 
+| Sat afternoon | Claude Code | M3 | `server/signals.py` (filters, peak + FFT rates, accel PCA, `rr_fused` fusion incl. single-source rule), processing loop on sample time, vitals + trend on the WebSocket and dashboard, tests scoring against simulator ground truth. Checked `opioid_decline` at 10x in Chrome. |
+
 ## Prompts that worked
 
 - "Read AGENTS.md fully. Before writing any code, give me a short plan for milestones 1–3: which

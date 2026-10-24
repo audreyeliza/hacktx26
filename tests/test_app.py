@@ -76,3 +76,26 @@ def test_reset_clears_buffers(test_cfg):
     with TestClient(app) as c:
         time.sleep(0.6)
         assert c.post("/api/demo/reset").json()["ingest"]["stats"]["packets"] <= 2
+
+
+def test_vitals_and_trend_over_websocket(test_cfg):
+    """Milestone 3 in the app: rates computed on sample time reach the dashboard."""
+    app = create_app(test_cfg, source="udp")
+    with TestClient(app) as c:
+        c.post("/api/source", json={"source": "simulator:normal", "speed": 40})
+        with c.websocket_connect("/ws/live") as ws:
+            trend = list(ws.receive_json()["trend"])  # history so far comes with hello
+            vitals = None
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline:
+                msg = ws.receive_json()
+                if msg["type"] == "vitals":
+                    trend += msg["trend"]
+                    vitals = msg["vitals"]
+                    if vitals["rr_fused"] is not None:
+                        break
+            assert vitals is not None and vitals["rr_fused"] is not None
+            assert 13 <= vitals["rr_fused"] <= 17
+            assert vitals["hr"] is not None
+            assert len(trend) >= 10 and trend[-1][1] == vitals["rr_fused"]  # first rate at 50 s (80 % of window)
+        assert c.get("/api/state").json()["vitals"]["rr_fused"] is not None

@@ -3,6 +3,8 @@
 
 const $ = (id) => document.getElementById(id);
 let windowS = 30;
+let trendWindowS = 3600;
+let trendPoints = []; // [[epoch_s, rr_fused|null], ...]
 
 // ---------------------------------------------------------------- charts
 function cssVar(name) {
@@ -74,6 +76,11 @@ function fmt(v, digits = 0) {
   return v === null || v === undefined ? "—" : Number(v).toFixed(digits);
 }
 
+function clearVitals() {
+  for (const id of ["rr", "hr"]) $(id).textContent = "—";
+  $("rr-detail").textContent = "";
+}
+
 function onVitals(v) {
   $("rr").textContent = fmt(v.rr_fused);
   const parts = [];
@@ -89,13 +96,17 @@ function onVitals(v) {
   if (v.quality) $("quality").textContent = v.quality;
 }
 
-function setTrend(points) {
-  // points: [[epoch_s, rr_fused|null], ...]; x shown as minutes relative to the newest point
+function addTrend(points, replace = false) {
+  // x is shown as minutes relative to the newest point
+  if (replace) trendPoints = [];
+  trendPoints.push(...points);
   const data = trend.data.datasets[0].data;
   data.length = 0;
-  if (!points.length) { trend.update("none"); return; }
-  const tLast = points[points.length - 1][0];
-  for (const [t, rr] of points) data.push({ x: (t - tLast) / 60, y: rr === null ? NaN : rr });
+  if (trendPoints.length) {
+    const tLast = trendPoints[trendPoints.length - 1][0];
+    trendPoints = trendPoints.filter(([t]) => t >= tLast - trendWindowS);
+    for (const [t, rr] of trendPoints) data.push({ x: (t - tLast) / 60, y: rr === null ? NaN : rr });
+  }
   trend.update("none");
 }
 
@@ -113,7 +124,6 @@ function onStatus(s) {
     ` (${st.missing_packets} missing) · invalid ${st.invalid}` +
     (st.device ? ` · ${st.device}` : "") + net;
   if (s.vitals) onVitals(s.vitals);
-  if (s.trend) setTrend(s.trend);
 }
 
 // ---------------------------------------------------------------- websocket
@@ -136,14 +146,16 @@ function connect() {
     switch (msg.type) {
       case "hello":
         windowS = msg.window_s;
+        trendWindowS = msg.trend_window_s;
+        addTrend(msg.trend, true);
         fillScenarios(msg.scenarios, msg.state.ingest.source);
         clearWaves();
         onStatus(msg.state);
         break;
-      case "reset": clearWaves(); setTrend([]); break;
+      case "reset": clearWaves(); addTrend([], true); clearVitals(); break;
       case "wave": onWave(msg); break;
       case "status": onStatus(msg); break;
-      case "vitals": onVitals(msg.vitals); if (msg.trend) setTrend(msg.trend); break;
+      case "vitals": onVitals(msg.vitals); addTrend(msg.trend); break;
     }
   };
 }

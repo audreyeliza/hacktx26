@@ -107,15 +107,21 @@ class SignalsCfg:
     rate_interval_s: float
     rate_window_s: float
     prelim_window_s: float
+    hr_window_s: float
     min_valid_fraction: float
     rr_min_bpm: float
     rr_max_bpm: float
     hr_min_bpm: float
     hr_max_bpm: float
     peak_prominence_frac: float
+    min_intervals: int
+    interval_cv_max: float
+    fft_pad_factor: int
     fft_confirm_bpm: float
+    source_min_conf: float
     agree_bpm: float
     single_source_conf_cap: float
+    disagree_conf_cap: float
     flat_std_counts: float
     accel_min_breath_g: float
 

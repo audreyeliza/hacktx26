@@ -45,7 +45,8 @@ records the reasoning and smaller choices.
 ## Smaller choices (M2)
 
 - **Platform:** the Mac runs the server for dev and the demo; the Pi 4 (Trixie, Python 3.13) is an
-  optional target. AGENTS.md §3/§15/§17 updated. Current pins also have 3.13 aarch64 wheels.
+  optional target. AGENTS.md §3/§15/§17 updated. Checked: every pin in `requirements.txt` resolves
+  to Python 3.13 aarch64 wheels.
 - **Default source is `udp`** (`ingest.default_source`), so both the external simulator and a WiFi
   Pico work with no clicks. Switch to `serial:auto` in the dashboard or config for USB.
 - **Timeline anchoring:** sample time = first packet's arrival + sample index × 20 ms. With
@@ -72,6 +73,39 @@ records the reasoning and smaller choices.
   reload (found while testing: the browser kept a stale `style.css`).
 - **Known warning:** Starlette warns that `httpx` in `TestClient` is deprecated in favour of
   `httpx2`. Harmless for now; tests pass.
+
+## Smaller choices (M3)
+
+- **Rate method:** band-pass (0.05–1.0 Hz breathing, 0.7–3.5 Hz pulse), `find_peaks` with a minimum
+  spacing (from the max rate) and a prominence of 30 % of the window's robust peak-to-peak
+  amplitude; rate = 60 / median peak-to-peak interval. A zero-padded FFT confirms it: confidence
+  drops when peak and FFT rates differ by > 2/min, and with irregular intervals.
+- **Accel effort:** each axis band-passed, then projected on the largest principal component.
+  Below 0.0015 g (`accel_min_breath_g`) it reports `None` ("flat") instead of a noise rate.
+- **Fusion decisions beyond the agreed rules (please review):**
+  - "Clean" in M3 means "the source produced a rate with confidence ≥ 0.3"
+    (`source_min_conf`). M4 quality will pass a per-source `clean` map into `fuse()`.
+  - **2+ usable sources with no two agreeing** (e.g. belt 10, airflow 20): the most confident
+    one is shown, flagged `sources_disagree`, with confidence capped at **0.4**
+    (`disagree_conf_cap`), i.e. below the alert gate. Rationale: conflicting sensors should
+    not raise an alarm on their own; the spec already says disagreement lowers confidence.
+  - A source outside the agreeing group is listed in the flag `outlier:<name>`.
+- **Warm-up:** rates appear once the 60 s window is ≥ 80 % valid (`min_valid_fraction`), i.e. at
+  50 s. Gaps up to 20 % of a window are linearly interpolated; longer gaps give `None` with reason
+  "missing data", never a "flat" reading.
+- **How M3 is scored:** each 60 s estimate is compared with the *mean* true rate over its window
+  (that is what a windowed estimator measures); during the decline it is also checked against
+  the true rate at the window end (±2). Results on simulator data: `normal` worst error
+  0.20/min, `opioid_decline` worst 0.16/min; HR within ±1.5 of 70; ~4 ms per 5 s update.
+  **Caveat:** the simulator is idealized; real sensors will be noisier, and thresholds need
+  checking against recordings (M9).
+- **HR resolution** is limited by 50 Hz sampling (~1.6 bpm steps at 70 bpm with a median
+  interval). Fine for display; can be refined with peak interpolation if needed.
+- **Processing runs on sample time:** the server computes vitals for every 5 s boundary of
+  sample time the buffers pass (up to 10 per 100 ms tick), so `--speed 10` replays work. The
+  trend (last 60 min) is kept in memory; SQLite storage comes with alerts.
+- **Dashboard tile** shows `rr_fused`, confidence, flags, per-source rates and the 30 s
+  preliminary value; the trend chart plots `rr_fused` (baseline line comes with alerts, M6).
 
 ## Open questions
 

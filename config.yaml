@@ -84,14 +84,20 @@ signals:
   rate_interval_s: 5
   rate_window_s: 60           # reported rate
   prelim_window_s: 30         # display-only preliminary estimate
+  hr_window_s: 15
   min_valid_fraction: 0.8     # fraction of non-NaN samples a window needs
   rr_min_bpm: 3
   rr_max_bpm: 40
   hr_min_bpm: 35
   hr_max_bpm: 180
   peak_prominence_frac: 0.3   # breath peaks must exceed this fraction of the window's robust amplitude
+  min_intervals: 2            # peak-to-peak intervals needed for a rate
+  interval_cv_max: 0.5        # interval irregularity (coef. of variation) at which confidence hits 0
+  fft_pad_factor: 8           # zero padding for a finer FFT frequency grid
   fft_confirm_bpm: 2.0        # peak-rate vs FFT-rate agreement for full confidence
+  source_min_conf: 0.3        # a source below this confidence is not used for fusion
   agree_bpm: 3.0              # sources within this of each other are "agreeing"
   single_source_conf_cap: 0.6 # decided: one clean source still meets the alert gate
+  disagree_conf_cap: 0.4      # 2+ sources and none agree: best one is shown, below the alert gate
   flat_std_counts: 40         # a channel with lower filtered std carries no breathing signal
   accel_min_breath_g: 0.0015  # minimum accel-effort std to report rr_accel
