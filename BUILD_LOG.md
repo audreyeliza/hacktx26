@@ -31,9 +31,11 @@ Honest record of which tool or agent produced each part of the project.
 | Sat night | Claude Code | M7 | `server/llm.py` (Gemini provider via google-genai, fake provider, digest builder, matplotlib trend chart sent as an image, SBAR structured output, cache fallback), per-patient + legacy summary endpoints, `tests/test_llm.py` (no network); bad-key fallback checked once against the real API. |
 | Sat night | Cursor (Grok) | frontend | Committed the clinical shell in `web/`: login, ward census, patient detail, add-patient, and admin Device & data. Built by Cursor against §19 with `mock.js` (`USE_MOCK` still on). Did not edit `server/`. |
 | Sat night | Cursor (Grok) | frontend | Pointed the same pages at the real API (`USE_MOCK` false). Alert list uses `status=unacked`; `awaiting_ack` reads "Resolved, awaiting acknowledgment"; a summary 503 says the language model is unreachable and no saved copy exists. Checked in the browser against `python -m server.app` on port 8000. |
+| Sat night | Cursor (Grok) | frontend | Live patient page has Calibrate supine (`POST /api/calibrate/supine`). Public demo banner from `GET /api/public-config` (text “Public demo — simulated data, research prototype”); password sign-in hides in that mode. Each summary names the Gemini model that answered. |
 | Sat night | Claude Code | Gemini | Key from `.env` (environment wins, never logged); model id checked with `models.list()`; overload fallback to `gemini-3.5-flash` / `-lite`; first real overnight summary + SBAR note generated on demo data. |
 | Sat night | Claude Code | quality | Floating (unconnected) ADC pins detected as `sensor_off` (band + jitter + high-frequency correlation); simulator faults for it. |
 | Sat night | Claude Code | M11 prep | Pi setup script, systemd unit, Mac push script (not run); PUBLIC_DEMO waiting for a spec. |
+| Sun early | Claude Code | PUBLIC_DEMO | `server/public_demo.py` and the 7 approved rules (+ Secure cookie, ward cap, `/api/public-config`), AGENTS.md §20, `deploy/PUBLIC_DEMO.md` + public systemd unit + Caddyfile (nothing deployed). |
 
 ## Prompts that worked
 
@@ -62,6 +64,12 @@ Honest record of which tool or agent produced each part of the project.
   The alert list asks for `status=unacked`. An `awaiting_ack` row says "Resolved, awaiting
   acknowledgment" and still has Acknowledge. A 503 from a summary endpoint shows a short message
   that the language model is unreachable and no saved copy exists.
+- Calibrate supine is on the patient page only while that patient has the live wearable.
+  It posts to `POST /api/calibrate/supine` and shows the recorded gravity vector.
+- `GET /api/public-config` decides the public-demo banner. The exact sentence is
+  “Public demo — simulated data, research prototype”. In that mode the password form
+  is hidden; demo sign-in stays. A summary says “Answered by” and the `model` the
+  server returned.
 - "If the alarm fires at ~25 s into a 24 s apnea, it fires after the apnea ends … tell me the
   real latency" — forced a measurement against ground truth instead of a claim, which showed
   most of the delay was update cadence, not detection.

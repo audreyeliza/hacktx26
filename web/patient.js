@@ -126,6 +126,7 @@ async function openPatient(patientId, currentUser) {
     editBuilt = true;
     await buildAdmission(state.patient, currentUser);
   }
+  $("cal-btn").addEventListener("click", calibrateSupine);
   $("sum-explain").addEventListener("click", () => runSummary("explain"));
   $("sum-overnight").addEventListener("click", () => runSummary("overnight"));
   $("sum-handoff").addEventListener("click", () => runSummary("handoff"));
@@ -203,6 +204,7 @@ function applyDevice(device) {
     : `Simulated · ${scenarioLabel(device.scenario)}`;
   $("pt-assign").textContent = `${label}. ${device.source_status || ""}`;
   $("link-note").hidden = !(device.kind === "live" && !device.link_ok);
+  $("calibrate").hidden = device.kind !== "live";
 }
 
 function setTier(tier, reason) {
@@ -350,7 +352,39 @@ function renderSummary(summary) {
     ${summary.cached ? `<p class="chip">Saved copy — the language model was unreachable</p>` : ""}
     <p class="summary-text">${esc(summary.text || "")}</p>
     ${sbar}
-    <p class="fine">${esc(summary.model || "")} · ${esc(fmtWhen(summary.created_t))}</p>`;
+    <p class="model-line">${esc(modelLine(summary))}</p>`;
+}
+
+function modelLine(summary) {
+  const model = summary.model ? `Answered by ${summary.model}` : "Answered by Gemini";
+  const saved = summary.cached ? " · saved copy" : "";
+  return `${model}${saved} · ${fmtWhen(summary.created_t)}`;
+}
+
+async function calibrateSupine() {
+  const btn = $("cal-btn");
+  showError($("cal-error"), null);
+  btn.disabled = true;
+  $("cal-note").textContent = "Recording gravity while you lie flat…";
+  try {
+    const res = await api("/api/calibrate/supine", { method: "POST", body: {} });
+    $("cal-note").textContent = calibrateNote(res);
+  } catch (err) {
+    $("cal-note").textContent = "Lie flat for a few seconds. Posture is then measured from that position.";
+    showError($("cal-error"), err);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function calibrateNote(res) {
+  const g = res && (res.gravity || res.vector);
+  if (Array.isArray(g) && g.length >= 3) {
+    const nums = g.slice(0, 3).map((n) => Number(n).toFixed(2)).join(", ");
+    return `Supine recorded (${nums} g). Posture is now measured from this position.`;
+  }
+  if (res && typeof res.detail === "string") return res.detail;
+  return "Supine recorded. Posture is now measured from this position.";
 }
 
 async function showChart() {

@@ -71,9 +71,42 @@ export function safeNext(raw) {
   return raw;
 }
 
+const PUBLIC_DEMO_TEXT = "Public demo — simulated data, research prototype";
+
+export function mountPublicDemo(text) {
+  let el = document.querySelector(".public-demo-banner");
+  if (!el) {
+    el = document.createElement("div");
+    el.className = "public-demo-banner";
+    el.setAttribute("role", "note");
+    document.body.prepend(el);
+  }
+  el.removeAttribute("style");
+  const message = (text || el.textContent || PUBLIC_DEMO_TEXT).trim() || PUBLIC_DEMO_TEXT;
+  el.textContent = message;
+  document.body.classList.add("has-public-demo");
+  const fields = document.getElementById("password-fields");
+  if (fields) fields.hidden = true;
+}
+
+export async function applyPublicDemo() {
+  let report = null;
+  try {
+    report = await api("/api/public-config", { redirectOn401: false });
+  } catch { /* an older server reports the mode by injecting the banner */ }
+  if (report && report.public_demo === true) {
+    mountPublicDemo(report.banner);
+    return;
+  }
+  const injected = document.querySelector(".public-demo-banner");
+  if (injected && injected.textContent.trim()) mountPublicDemo(injected.textContent);
+}
+
 export async function boot() {
-  const { user } = await api("/api/auth/me");
+  const me = await api("/api/auth/me");
+  const user = me.user || me;
   renderChrome(user);
+  await applyPublicDemo();
   return user;
 }
 

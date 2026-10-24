@@ -16,10 +16,12 @@
     <p class="notice">Demo accounts — do not use real credentials.</p>
     <div class="demo-grid" id="demo"></div>
     <form id="login-form">
-      <label>Username <input name="username" autocomplete="username" required></label>
-      <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+      <div id="password-fields">
+        <label>Username <input name="username" autocomplete="username" required></label>
+        <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+        <div class="form-actions"><button class="primary" type="submit">Sign in</button></div>
+      </div>
       <p class="notice" id="login-error" hidden></p>
-      <div class="form-actions"><button class="primary" type="submit">Sign in</button></div>
     </form>
   </main>
   <footer class="footer">Research prototype — not a medical device. Thresholds are for demonstration.</footer>

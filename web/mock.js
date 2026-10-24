@@ -1041,6 +1041,21 @@ function mockRoute(method, path, body, query) {
     if (!user) throw new ApiError(401, "Sign in required");
     return { status: 200, body: { user } };
   }
+  if (method === "GET" && path === "/api/public-config") {
+    return {
+      status: 200,
+      body: {
+        public_demo: false,
+        banner: null,
+        password_login: true,
+        live_device: true,
+      },
+    };
+  }
+  if (method === "POST" && path === "/api/calibrate/supine") {
+    requireUser();
+    return { status: 200, body: { gravity: [0.01, 0.02, 0.99], samples: 150 } };
+  }
   if (method === "GET" && path === "/api/auth/demo-accounts") {
     return { status: 200, body: ACCOUNTS.map((a) => ({ role: a.role, display_name: a.display_name })) };
   }

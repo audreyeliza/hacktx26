@@ -1,4 +1,4 @@
-import { api, esc, safeNext, showError } from "/static/common.js";
+import { api, applyPublicDemo, esc, safeNext, showError } from "/static/common.js";
 
 const ROLE = {
   nurse: "Ward, alerts, and admissions",
@@ -11,9 +11,10 @@ const params = new URLSearchParams(location.search);
 const next = safeNext(params.get("next"));
 
 try {
-  const { user } = await api("/api/auth/me", { redirectOn401: false });
-  if (user) location.replace(next);
+  const me = await api("/api/auth/me", { redirectOn401: false });
+  if (me.user) location.replace(next);
 } catch { /* signed out */ }
+await applyPublicDemo();
 
 const accounts = await api("/api/auth/demo-accounts", { redirectOn401: false });
 const demo = document.getElementById("demo");
