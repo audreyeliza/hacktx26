@@ -27,7 +27,8 @@ def is_enabled(cfg: Config) -> bool:
 
 
 def simulated_device(cfg: Config) -> dict[str, Any]:
-    return {"kind": "simulator", "scenario": cfg.public_demo.live_bed_scenario, "speed": 1.0, "loop": True}
+    return {"kind": "simulator", "scenario": cfg.public_demo.live_bed_scenario, "speed": 1.0, "loop": True,
+            "start_s": cfg.public_demo.live_bed_start_s}
 
 
 class RateLimiter:

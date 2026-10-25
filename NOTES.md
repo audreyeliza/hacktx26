@@ -378,6 +378,18 @@ records the reasoning and smaller choices.
 - Deploy gotcha written into the doc: `sudo caddy validate` as root creates a root-owned log
   file and the reload fails.
 
+## Staggered ward (Sun 2026-10-25)
+
+- Seeded beds get a fixed `start_s` (scenario time when the ward appears; history is backfilled
+  before it) instead of a random one: bed 1 normal 300 s, bed 2 motion 165 s, bed 3 obstructive
+  352 s, bed 4 demo 375 s (public mode), bed 5 opioid_decline 600 s, bed 6 central 210 s. Chosen
+  from the per-bed timelines (each bed's seed = base + bed number). First 30 s after start/reset:
+  tiles Urgent ×2 (beds 3, 6 — apneas in progress, tier 3 at ~+14 s and ~+25 s), Watch ×1 (bed 5,
+  8.5 → 8.0/min), and tier 0 for bed 1 (stable), bed 2 (motion, smart silent) and bed 4.
+  `tests/test_ward_mix.py` asserts the mix in normal, public and public-after-reset modes.
+- The mix is guaranteed for the first 30 s after a start/reset; later it drifts as each scenario
+  loops (in the public demo, latched tier-3 alerts stay until someone acknowledges them).
+
 ## Clinical app shell contract (§19) — choices made while writing it
 
 - **Both WebSockets:** a light `/ws/ward` (summaries + alert pushes) for the overview and a heavy

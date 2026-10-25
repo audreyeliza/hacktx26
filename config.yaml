@@ -206,23 +206,25 @@ auth:                         # AGENTS.md §19 — DEMO-GRADE login
 
 ward:
   live_device_id: patch-01
-  random_offset: true         # simulated patients start at a random point in their scenario
+  random_offset: true         # simulated patients without a device start_s start at a random point
   ward_push_s: 2.0            # /ws/ward summary push at most this often
   backfill_s: 150             # on ward start/reset, simulated beds get this much history at once
+  # start_s on a simulated device = where the bed is in its scenario when the ward appears (after
+  # the backfilled history). Chosen so the first 30 s show a mix: stable, motion, slowing, apneas.
   seed:                       # created when the patients table is empty; names are fictional
     - bed: "1"
       name: Morgan Ellis
-      device: {kind: simulator, scenario: normal}
+      device: {kind: simulator, scenario: normal, start_s: 300}
       risk_factors: {opioids: true, supplemental_o2: false, osa: none, age_over_65: false}
       notes: Post-op day 2, oral opioids
     - bed: "2"
       name: Riley Chen
-      device: {kind: simulator, scenario: motion}
+      device: {kind: simulator, scenario: motion, start_s: 165}
       risk_factors: {opioids: true, supplemental_o2: false, osa: none, age_over_65: true}
       notes: Restless overnight
     - bed: "3"
       name: Sam Okafor
-      device: {kind: simulator, scenario: obstructive}
+      device: {kind: simulator, scenario: obstructive, start_s: 352}
       risk_factors: {opioids: true, supplemental_o2: true, osa: suspected, age_over_65: false}
       notes: Snoring reported, STOP-BANG 5
     - bed: "4"
@@ -232,12 +234,12 @@ ward:
       notes: Post-op day 1, PCA morphine (live wearable)
     - bed: "5"
       name: Casey Moreno
-      device: {kind: simulator, scenario: opioid_decline}
+      device: {kind: simulator, scenario: opioid_decline, start_s: 600}
       risk_factors: {opioids: true, supplemental_o2: true, osa: none, age_over_65: true}
       notes: PCA dose increased at 22:00
     - bed: "6"
       name: Alex Novak
-      device: {kind: simulator, scenario: central}
+      device: {kind: simulator, scenario: central, start_s: 210}
       risk_factors: {opioids: true, supplemental_o2: false, osa: known, age_over_65: true}
       notes: Home CPAP not available
 
@@ -265,6 +267,7 @@ llm:                          # AGENTS.md §10 — Google Gemini; key from the e
 public_demo:                  # AGENTS.md §20 — on with env PUBLIC_DEMO=1 (or enabled: true)
   enabled: false
   live_bed_scenario: demo     # the live bed (wearable) becomes this looping simulator
+  live_bed_start_s: 375       # ... starting just past the demo's motion block, as the slowing begins
   http_host: 127.0.0.1        # only reachable through the HTTPS reverse proxy (Caddy)
   proxy_ips: 127.0.0.1        # trusted X-Forwarded-For / -Proto sources
   reset_cooldown_s: 120       # demo reset at most this often (whole site)

@@ -541,8 +541,10 @@ only by editing this section first, and say so in `NOTES.md`.
 **Device** (assignment), one of:
 ```json
 {"kind": "live", "device_id": "patch-01"}
-{"kind": "simulator", "scenario": "opioid_decline", "speed": 1.0, "loop": true}
+{"kind": "simulator", "scenario": "opioid_decline", "speed": 1.0, "loop": true, "start_s": 600}
 ```
+`start_s` (optional, seconds) = where the bed is in its scenario when the ward appears (after the
+backfilled history); omitted or `null` → a random point.
 `scenario` ∈ `normal | motion | opioid_decline | obstructive | central | hypopnea |
 sensor_off | demo`.
 
@@ -846,8 +848,11 @@ ward:
     - …               # 6 beds; bed 4 = {kind: live, device_id: patch-01}
 ```
 Default seed mix: bed 1 `normal`, bed 2 `motion`, bed 3 `obstructive` (OSA suspected),
-bed 4 live, bed 5 `opioid_decline` (opioids), bed 6 `central`. Simulated patients start at a
-random offset into their scenario so the ward does not move in lockstep, and on ward start /
+bed 4 live, bed 5 `opioid_decline` (opioids), bed 6 `central`. **Staggered starts (decided):** each
+seeded bed has a chosen `start_s` so that within 30 s of the ward appearing (start or demo reset)
+it shows a mix — bed 1 stable, bed 2 motion, bed 3 and bed 6 apneas reaching tier 3, bed 5 slowing
+with a tier-1 alert (in public mode bed 4 plays `demo` from just past its motion block); a test
+checks this. Patients without `start_s` start at a random offset, and on ward start /
 demo reset each simulated bed is **backfilled** with `ward.backfill_s` (150 s) of history so rates,
 baseline and trend show immediately (newly admitted patients get no backfill). Each simulated
 patient's packets use device id `sim-<patient id>`; the live wearable keeps `patch-01`.

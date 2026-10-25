@@ -282,6 +282,7 @@ class LLMCfg:
 class PublicDemoCfg:
     enabled: bool
     live_bed_scenario: str
+    live_bed_start_s: float
     http_host: str
     proxy_ips: str
     reset_cooldown_s: float

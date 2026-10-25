@@ -50,6 +50,7 @@ class SimDevice(BaseModel):
     scenario: Literal[SCENARIO_NAMES]  # type: ignore[valid-type]
     speed: float = Field(1.0, gt=0, le=100)
     loop: bool = True
+    start_s: float | None = Field(None, ge=0)   # scenario time when the ward appears; None = random
 
 
 Device = Annotated[Union[LiveDevice, SimDevice], Field(discriminator="kind")]
@@ -127,12 +128,19 @@ class PatientRuntime:
         dev = self.patient["device"]
         if dev["kind"] == "simulator":
             num = int(self.id.lstrip("p"))
-            sim = Simulator(dev["scenario"], self.cfg)
-            offset = self.ward.rng.uniform(0, sim.duration_s) if self.cfg.ward.random_offset else 0.0
+            seed = self.cfg.simulator.seed + num
+            duration = Simulator(dev["scenario"], self.cfg, seed=seed).duration_s
+            history = self.cfg.ward.backfill_s if backfill else 0.0
+            if dev.get("start_s") is not None:      # staggered on purpose: be at start_s when the ward appears
+                offset = (dev["start_s"] - history) % duration
+            elif self.cfg.ward.random_offset:
+                offset = self.ward.rng.uniform(0, duration)
+            else:
+                offset = 0.0
             self.sim = SimulatorSource(self.stream, dev["scenario"], dev.get("speed", 1.0), dev.get("loop", True),
-                                       device=f"sim-{self.id}", seed=self.cfg.simulator.seed + num, start_s=offset)
-            if backfill and self.cfg.ward.backfill_s > 0:
-                self._backfill(self.cfg.ward.backfill_s)
+                                       device=f"sim-{self.id}", seed=seed, start_s=offset)
+            if history > 0:
+                self._backfill(history)
             await self.sim.start()
 
     def _backfill(self, seconds: float) -> None:
