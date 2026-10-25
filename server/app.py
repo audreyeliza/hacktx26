@@ -458,7 +458,15 @@ def create_app(cfg: Config | None = None, source: str | None = None) -> FastAPI:
         stored = st().store.alert(alert_id)
         if stored is None or stored["patient_id"] != patient_id:
             raise HTTPException(404, f"no alert {alert_id} for patient {patient_id}")
-        return stored  # from an earlier run: already ended
+        if stored["status"] in ("active", "awaiting_ack"):
+            # Left open by an earlier run (server restart or pipeline reset): the engine no longer
+            # tracks it, so close it here or it stays listed as unacknowledged forever.
+            now = time.time()
+            stored.update(status="acknowledged", acknowledged_by=user, acknowledged_t=now,
+                          ack_note=note, updated_t=now)
+            st().store.save_alert(stored)
+            ward.log_alert(patient_id, stored)
+        return stored
 
     @app.post("/api/patients/{patient_id}/alerts/{alert_id}/ack")
     async def ack_alert(patient_id: str, alert_id: int, req: AckRequest | None = None,

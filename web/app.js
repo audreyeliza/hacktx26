@@ -8,6 +8,7 @@ const TIERS = [3, 2, 1, 0];
 let filter = null;
 let latest = null;
 const previousRr = new Map();
+const lastGood = new Map();
 
 const tiers = $("tiers");
 tiers.innerHTML = TIERS.map((tier) => `
@@ -27,7 +28,19 @@ tiers.addEventListener("click", (ev) => {
   if (latest) paint(latest);
 });
 
+function rememberGood(p) {
+  if (p.quality !== "clean") return;
+  const prev = lastGood.get(p.id) || {};
+  lastGood.set(p.id, { rr: p.rr ?? prev.rr ?? null, hr: p.hr ?? prev.hr ?? null });
+}
+
 function signalOf(p) {
+  if (p.rr == null && p.quality === "motion") {
+    const last = lastGood.get(p.id);
+    return last && last.rr != null
+      ? { kind: "stale", rate: fmt(last.rr, 0), hint: "Last reading — patient moving" }
+      : { kind: "stale", rate: "Moving", hint: "Patient moving, no reading yet" };
+  }
   if (p.device_kind === "live" && p.link_ok === false && p.rr == null) {
     return { kind: "off", rate: "No reading", hint: "Check sensor" };
   }
@@ -53,6 +66,7 @@ function trendArrow(id, rr) {
 function situation(p, signal) {
   if (p.tier_reason) return p.tier_reason;
   if (signal.kind === "off") return "No reading — check sensor";
+  if (signal.kind === "stale") return signal.hint;
   if (signal.kind === "starting") return "Starting up — first reading in about 15 s";
   if (p.last_event) {
     return `${eventLabel(p.last_event.type)}, ${Math.round(p.last_event.duration_s)} s`;
@@ -84,6 +98,7 @@ function paint(payload) {
     rates.textContent = "";
   }
 
+  for (const p of payload.patients) rememberGood(p);
   const shown = filter == null ? payload.patients : payload.patients.filter((p) => p.tier === filter);
   const n = payload.patients.length;
   $("lede").textContent = `${n} ${n === 1 ? "patient" : "patients"}`;
@@ -103,10 +118,15 @@ function row(p) {
   const live = p.device_kind === "live";
   const tag = live ? `<span class="tag tag-live">Live sensor</span>` : `<span class="tag">Simulated</span>`;
   const warn = signal.kind === "good" ? "" : `<span class="sig-warn" title="${esc(signal.hint || signal.kind)}">!</span>`;
-  const rate = signal.kind === "good" || signal.kind === "low"
+  const stale = signal.kind === "stale";
+  const last = lastGood.get(p.id);
+  const rate = stale && last && last.rr != null
+    ? `<b class="stale">${esc(signal.rate)}</b> <small>/min last</small> ${warn}`
+    : signal.kind === "good" || signal.kind === "low"
     ? `<b>${esc(signal.rate)}</b> <small>/min</small> ${arrow ? `<span class="trend-arrow">${arrow}</span>` : ""} ${warn}`
     : `<b class="rate-note">${esc(signal.rate)}</b> ${warn}`;
-  const heart = p.hr == null ? "—" : fmt(p.hr, 0);
+  const heart = p.hr != null ? esc(fmt(p.hr, 0))
+    : stale && last && last.hr != null ? `<span class="stale">${esc(fmt(last.hr, 0))}</span>` : "—";
   const ack = p.unacked_alerts ? `${p.unacked_alerts} to ack.` : "";
   return `
     <a class="census" data-tier="${p.tier}" href="/patients/${encodeURIComponent(p.id)}" aria-label="Bed ${esc(p.bed)}, ${esc(p.name)}, ${esc(tierName(p.tier))}">
@@ -116,7 +136,7 @@ function row(p) {
         <span class="census__reason">${esc(situation(p, signal))}</span>
       </span>
       <span class="census__stat census__rr">${rate}</span>
-      <span class="census__stat census__hr"><b>${esc(heart)}</b></span>
+      <span class="census__stat census__hr"><b>${heart}</b></span>
       <span class="census__posture">${esc(postureLabel(p.posture))}</span>
       <span class="census__tier"><span>${esc(tierName(p.tier))}</span><small>${esc(ack)}</small></span>
     </a>`;

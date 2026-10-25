@@ -127,6 +127,7 @@ function drawTrend() {
 }
 
 let alertRows = [];
+let latestAlert = null;   // newest alert, acknowledged or not (what "Explain latest alert" explains)
 let alertSig = "";
 let currentTier = 0;
 let discharged = false;
@@ -327,9 +328,10 @@ function alertArticle(a, canAck) {
 function setAlerts(list, history = []) {
   alertRows = list.slice().sort((a, b) => b.raised_t - a.raised_t);
   const acked = history.slice().sort((a, b) => b.raised_t - a.raised_t);
+  latestAlert = [...alertRows, ...acked].sort((a, b) => b.raised_t - a.raised_t)[0] || null;
   const sig = alertRows.map((a) => `${a.id}:${a.status}:${a.tier}:${a.escalated}:${a.reason}:${a.ack_note || ""}`).join("|")
     + "#" + acked.map((a) => a.id).join(",");
-  $("sum-explain").disabled = alertRows.length === 0;
+  $("sum-explain").disabled = !latestAlert;
   if (sig === alertSig) return;
   alertSig = sig;
   const active = alertRows.filter((a) => a.status === "active");
@@ -399,7 +401,7 @@ async function onAlertClick(ev) {
     await refreshClinical(id);
   } catch (err) {
     allBtn.disabled = false;
-    showError($("edit-error"), err);
+    showError($("ack-error"), err);
   }
 }
 
@@ -407,7 +409,8 @@ async function onAck(ev) {
   const form = ev.target;
   if (!(form instanceof HTMLFormElement)) return;
   ev.preventDefault();
-  const btn = form.querySelector("button");
+  const btn = ev.submitter || form.querySelector('button[type="submit"]');
+  showError($("ack-error"), null);
   btn.disabled = true;
   try {
     await api(`/api/patients/${id}/alerts/${btn.dataset.id}/ack`, {
@@ -418,7 +421,7 @@ async function onAck(ev) {
     await refreshClinical(id);
   } catch (err) {
     btn.disabled = false;
-    showError($("edit-error"), err);
+    showError($("ack-error"), err);
   }
 }
 
@@ -429,8 +432,8 @@ async function runSummary(kind) {
   try {
     let path = `/api/patients/${id}/summary/${kind}`;
     if (kind === "explain") {
-      if (!alertRows.length) return;
-      path = `/api/patients/${id}/summary/explain/${alertRows[0].id}`;
+      if (!latestAlert) return;
+      path = `/api/patients/${id}/summary/explain/${latestAlert.id}`;
     }
     const summary = await api(path, { method: "POST" });
     renderSummary(summary);
@@ -439,7 +442,7 @@ async function runSummary(kind) {
   } catch (err) {
     if (err.status === 503) {
       showError($("ai-error"), {
-        detail: "The summary could not be written. The language model is unreachable, and there is no saved copy yet.",
+        detail: `The summary could not be written and there is no saved copy yet. ${err.detail || ""}`.trim(),
       });
     } else {
       showError($("ai-error"), err);
@@ -448,7 +451,7 @@ async function runSummary(kind) {
     $("ai-status").textContent = "";
     $("sum-overnight").disabled = false;
     $("sum-handoff").disabled = false;
-    $("sum-explain").disabled = alertRows.length === 0;
+    $("sum-explain").disabled = !latestAlert;
   }
 }
 
