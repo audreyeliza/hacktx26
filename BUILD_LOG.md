@@ -44,6 +44,8 @@ Honest record of which tool or agent produced each part of the project.
 | Sat night | Cursor (Grok 4.7) | UI pass 2 | Ward overview: status chips filter the list, this shift's smart vs standard alarm count is in the header, each bed is one name line and one status line on a fixed grid. |
 | Sat night | Cursor (Grok 4.7) | UI pass 3 | Patient page: vital strip, grouped alerts, event table with chart shading, signal details. Handoff still renders the four SBAR cards plus the chart and discrepancy lines. |
 | Sat night | Cursor (Grok 4.7) | UI pass 4 | Add-patient form: open-bed list, risk-factor chips, live wearable or a demo scenario. Speed, loop, and device id sit under Advanced for the admin. |
+| Sat night | Cursor (Grok 4.7) | UI pass 5 | Device page says whether the wearable is connected, in words, with a status dot. The public demo replaces the controls with one sentence. |
+| Sat night | Cursor (Grok 4.7) | UI pass 6 | At phone width the ward rows stack and the vital strip wraps to two by two. Nothing new animates. |
 
 ## Prompts that worked
 

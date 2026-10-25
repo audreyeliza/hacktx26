@@ -9,6 +9,11 @@ if (user.role !== "admin") {
 }
 
 async function start() {
+  const pub = await api("/api/public-config", { redirectOn401: false }).catch(() => ({ public_demo: false }));
+  if (pub.public_demo) {
+    $("admin-root").innerHTML = `<p>Device controls are turned off in the public demo.</p>`;
+    return;
+  }
   let device;
   try {
     device = await api("/api/admin/device");
@@ -52,9 +57,17 @@ async function start() {
   }, 1000);
 }
 
+function connectionWords(device) {
+  const src = device.source || "";
+  if (!device.link_ok) return "Not connected";
+  if (src.startsWith("serial")) return "Wearable connected over USB — receiving";
+  if (src === "udp") return "Wearable connected over the network — receiving";
+  if (src.startsWith("simulator")) return "Simulated wearable — receiving";
+  return "Receiving";
+}
+
 function paint(device) {
-  const link = device.link_ok ? "Receiving" : "No packets";
-  $("source-line").textContent = `${device.source} · ${link}. ${device.source_status}`;
+  $("source-line").innerHTML = `<span class="status-dot" data-ok="${device.link_ok ? "1" : "0"}"></span> ${esc(connectionWords(device))}`;
   const stats = device.stats || {};
   const cells = [
     ["Packets", stats.packets ?? 0],

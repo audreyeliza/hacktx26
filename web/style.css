@@ -409,26 +409,25 @@ body.login.has-public-demo .login-card { margin: auto; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
-@media (max-width: 860px) {
-  .tiers { grid-template-columns: 1fr 1fr; }
+@media (max-width: 720px) {
+  .top { flex-wrap: wrap; row-gap: 8px; }
+  .ward-head, .shift-stat { text-align: left; align-items: start; }
+  .ward-head { flex-direction: column; }
   .census-head { display: none; }
   .census {
     display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    column-gap: 14px;
-    row-gap: 2px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
   }
-  .census__bed { order: 0; }
-  .census__who { order: 1; flex: 1 1 160px; min-width: 0; }
-  .census__tier { order: 2; margin-left: auto; }
-  .census__rr, .census__hr, .census__posture, .census__quality { order: 3; }
-  .detail, form .fields { grid-template-columns: 1fr; }
-  .session { margin-left: 0; }
+  .census__stat { text-align: left; }
+  .census__reason { white-space: normal; }
+  .alert { flex-wrap: wrap; }
+  .alert .ack { margin-left: 0; }
+  .clinical-row, form .fields { grid-template-columns: 1fr; }
+  .vital-strip .vitals { grid-template-columns: 1fr 1fr; }
   .patient-head { align-items: start; }
   .wave__plot { height: 72px; }
-  .vital-strip .vitals { grid-template-columns: 1fr 1fr; }
-  .clinical-row { grid-template-columns: 1fr; }
 }
 
 .patient-stack { display: flex; flex-direction: column; gap: 16px; }
@@ -490,3 +489,11 @@ form:has(input[name="kind"][value="live"]:checked) .sim-only { display: none; }
 #new-form { max-width: 32rem; display: grid; gap: 12px; }
 #new-form .form-actions { display: flex; gap: 8px; align-items: center; }
 #new-form .form-actions .quiet { text-decoration: none; }
+.status-line { display: flex; align-items: center; gap: 8px; font-weight: 600; margin: 0; }
+.status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ink-2); flex: 0 0 auto; }
+.status-dot[data-ok="1"] { background: var(--brand); }
+
+@media (max-width: 720px) {
+  .vital-strip .vitals { grid-template-columns: 1fr 1fr; }
+  .clinical-row { grid-template-columns: 1fr; }
+}
