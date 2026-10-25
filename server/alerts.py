@@ -44,6 +44,18 @@ def _conf_word(conf: float, high: float) -> str:
     return "high" if conf >= high else "moderate"
 
 
+ALARM_HISTORY_S = 36 * 3600   # alarm timestamps kept for shift counts
+
+
+def _trim(times: deque[float], now: float) -> None:
+    while times and times[0] < now - ALARM_HISTORY_S:
+        times.popleft()
+
+
+def count_since(times: deque[float], since_t: float) -> int:
+    return sum(1 for t in times if t >= since_t)
+
+
 class AlertEngine:
     """One patient's alert state. `update` is called every 5 s with that step's results."""
 
@@ -64,6 +76,7 @@ class AlertEngine:
         self.alerted_apnea_start: float | None = None
         self.tier3_since: dict[int, float] = {}
         self.smart_alarms = 0
+        self.alarm_times: deque[float] = deque()   # when each smart alarm fired (for shift counts)
         self.suppressed = 0
         self.last_t: float | None = None
         self._local_id = 0
@@ -92,6 +105,11 @@ class AlertEngine:
 
     def buzzer(self) -> bool:
         return any(a["tier"] >= 3 and a["status"] == "active" for a in self.active_alerts())
+
+    def _count_alarm(self, t: float) -> None:
+        self.smart_alarms += 1
+        self.alarm_times.append(t)
+        _trim(self.alarm_times, t)
 
     def counts(self, naive_alarms: int) -> dict[str, Any]:
         hours = max((self.last_t or 0) - (self.start_t or 0), 1.0) / 3600.0
@@ -130,7 +148,7 @@ class AlertEngine:
                 changed = True
             if tier > alert["tier"] or (refresh and tier == alert["tier"] and reason != alert["reason"]):
                 if tier > alert["tier"]:
-                    self.smart_alarms += 1
+                    self._count_alarm(t)
                 alert.update(tier=max(tier, alert["tier"]), reason=reason, updated_t=t)
                 changed = True
             if changed:
@@ -146,7 +164,7 @@ class AlertEngine:
         self.cool[kind] = _Cool(t, tier)
         self.clear_since[kind] = None
         if tier >= 1:
-            self.smart_alarms += 1
+            self._count_alarm(t)
 
     def _log_suppressed(self, kind: str, reason: str, t: float) -> None:
         key = f"{kind}:log"
@@ -353,6 +371,7 @@ class NaiveMonitor:
         self.n = cfg.naive
         self.active: dict[str, bool] = {}
         self.alarms = 0
+        self.alarm_times: deque[float] = deque()   # when each naive alarm fired (for shift counts)
         self.by_kind: dict[str, int] = {}
 
     def _count_rate(self, x: np.ndarray | None, fs: float, band: tuple[float, float], window_s: float,
@@ -380,8 +399,10 @@ class NaiveMonitor:
             "airflow_flat": flat,
         }
         started = [k for k, c in conds.items() if c and not self.active.get(k)]
+        _trim(self.alarm_times, t)
         self.active = conds
         for k in started:
             self.alarms += 1
+            self.alarm_times.append(t)
             self.by_kind[k] = self.by_kind.get(k, 0) + 1
         return started

@@ -679,12 +679,36 @@ a tier-3 alert is not acknowledged within 60 s ("charge nurse"). `acknowledged_b
   "last_event": {"type": "obstructive", "start_t": 1792877700.0, "duration_s": 22.5},
   "unacked_alerts": 1,
   "risk_factors": {"opioids": true, "supplemental_o2": true, "osa": "suspected", "age_over_65": false},
-  "updated_t": 1792877820.0
+  "updated_t": 1792877820.0,
+  "shift_alarms": {"smart": 2, "naive": 11}
 }
 ```
-`tier` is the highest tier among the patient's **unacknowledged** alerts (status `active` or
+`shift_alarms`: alarms for this patient since the current shift began (see **ShiftSummary**) —
+`smart` = BreathWatch alerts raised or escalated at tier ≥ 1, `naive` = onsets of the naive
+fixed-threshold monitor (§8) on the same data. `tier` is the highest tier among the patient's **unacknowledged** alerts (status `active` or
 `awaiting_ack`), else 0. `unacked_alerts` counts both.
 `tier_reason` is that alert's `reason` (or `null`). `last_event` is `null` if none.
+
+**ShiftSummary** (ward-wide "smart vs standard alarms this shift"; in `GET /api/patients` and
+`ward` socket messages)
+```json
+{
+  "name": "Night",
+  "label": "Night shift 7:00 PM–7:00 AM CDT",
+  "start_t": 1792886400.0,
+  "end_t": 1792929600.0,
+  "since_t": 1792886400.0,
+  "hours": 2.35,
+  "smart": {"alarms": 7, "per_hour": 3.0},
+  "naive": {"alarms": 64, "per_hour": 27.2},
+  "patients": 6
+}
+```
+Shifts change at `display.shift_change_hours` (7 AM and 7 PM) in `display.timezone`
+(America/Chicago; daylight-saving shifts are 11 or 13 h). Totals are the sums of the admitted
+patients' `shift_alarms`. `since_t` = the later of the shift start and when monitoring began (e.g.
+a server start or demo reset mid-shift); `hours` = hours since `since_t`; `per_hour` divides by at
+least `display.min_rate_hours` (0.25 h) so the first minutes do not show silly rates.
 
 **PatientState** (patient detail page)
 ```json
@@ -750,7 +774,7 @@ and nothing is cached yet, the summary endpoints return `503 {"detail": …}`.
 
 | Method & path | Body / query | Response |
 |---|---|---|
-| `GET /api/patients` | `?status=admitted` (default) `\|discharged\|all` | `200 {"patients": [PatientSummary], "counts": {"0": 3, "1": 1, "2": 1, "3": 1}, "generated_t": …}` sorted by tier desc, then `unacked_alerts` desc, then bed (natural order) |
+| `GET /api/patients` | `?status=admitted` (default) `\|discharged\|all` | `200 {"patients": [PatientSummary], "counts": {"0": 3, "1": 1, "2": 1, "3": 1}, "shift": ShiftSummary, "generated_t": …}` sorted by tier desc, then `unacked_alerts` desc, then bed (natural order) |
 | `POST /api/patients` | PatientCreate (below) | `201 Patient`; `409` if the live device is already assigned |
 | `GET /api/patients/{id}` | — | `200 Patient`; `404` |
 | `PATCH /api/patients/{id}` | any subset of PatientCreate fields | `200 Patient`. Changing `device` restarts that patient's pipeline (state cleared, stored history kept). `409` on device conflict, `400` if discharged |
@@ -817,7 +841,7 @@ and `web/style.css`. Every page keeps the §12 footer.
 
 | Message | When | Shape |
 |---|---|---|
-| `ward` | on connect, then at most every 2 s when anything changed | `{"type": "ward", "patients": [PatientSummary], "counts": {"0": 3, "1": 1, "2": 1, "3": 1}, "generated_t": …}` |
+| `ward` | on connect, then at most every 2 s when anything changed | `{"type": "ward", "patients": [PatientSummary], "counts": {"0": 3, "1": 1, "2": 1, "3": 1}, "shift": ShiftSummary, "generated_t": …}` |
 | `alert` | immediately when any alert is raised, changes tier, escalates, is acknowledged or resolved | `{"type": "alert", "patient_id": "p4", "alert": Alert}` |
 
 **Patient socket `WS /ws/patients/{id}`** (detail page; includes waveforms)

@@ -32,7 +32,7 @@ ALERT = {"id", "patient_id", "kind", "tier", "reason", "status", "raised_t", "up
          "escalated_t", "acknowledged_by", "acknowledged_t", "ack_note"}
 MONITORS = {"smart", "naive", "since_t"}
 SUMMARY = {"id", "name", "bed", "device_kind", "scenario", "link_ok", "tier", "tier_reason", "rr", "rr_conf", "hr",
-           "posture", "quality", "last_event", "unacked_alerts", "risk_factors", "updated_t"}
+           "posture", "quality", "last_event", "unacked_alerts", "risk_factors", "updated_t", "shift_alarms"}
 STATE = {"patient", "device", "vitals", "tier", "tier_reason", "baseline", "active_alerts", "recent_events",
          "monitors"}
 ADMIN_DEVICE = {"source", "source_status", "link_ok", "stats", "assigned_patient_id", "unassigned_packets",
@@ -135,7 +135,7 @@ def test_websocket_requires_login(secure):
 
 def test_default_ward_seeded(client):
     body = client.get("/api/patients").json()
-    assert set(body) == {"patients", "counts", "generated_t"}
+    assert set(body) == {"patients", "counts", "shift", "generated_t"}
     assert set(body["counts"]) == {"0", "1", "2", "3"} and sum(body["counts"].values()) == 6
     rows = body["patients"]
     assert all(set(r) == SUMMARY for r in rows)
@@ -257,7 +257,7 @@ def test_record_mode_writes_csv(client):
 def test_demo_reset_and_reseed(client):
     client.post("/api/patients", json=new_patient(bed="14"))
     body = client.post("/api/demo/reset", json={"reseed_ward": False}).json()
-    assert len(body["patients"]) == 7 and set(body) == {"patients", "counts", "generated_t"}
+    assert len(body["patients"]) == 7 and set(body) == {"patients", "counts", "shift", "generated_t"}
     body = client.post("/api/demo/reset", json={"reseed_ward": True}).json()
     assert sorted(p["bed"] for p in body["patients"]) == ["1", "2", "3", "4", "5", "6"]
 
@@ -308,7 +308,7 @@ def test_unknown_patient_socket_closes_4404(client):
 def test_ward_socket_summaries_and_alert_push(client):
     with client.websocket_connect("/ws/ward") as ws:
         first = ws.receive_json()
-        assert first["type"] == "ward" and set(first) == {"type", "patients", "counts", "generated_t"}
+        assert first["type"] == "ward" and set(first) == {"type", "patients", "counts", "shift", "generated_t"}
         rt = client.app_state.ward.runtimes["p1"]
         eng = rt.pipeline.alerts
         eng.start_t = 0.0
@@ -360,3 +360,41 @@ def test_backfill_gives_seeded_beds_rates_at_start(test_cfg):
         assert rows["1"]["rr"] is not None and 12 <= rows["1"]["rr"] <= 18   # simulated, normal
         assert rows["4"]["rr"] is None                                       # live: no fake history
         assert len(c.get("/api/patients/p1/vitals").json()["vitals"]) >= 17
+
+
+
+SHIFT = {"name", "label", "start_t", "end_t", "since_t", "hours", "smart", "naive", "patients"}
+
+
+def test_ward_listing_has_shift_alarm_counts(client):
+    """Smart vs standard (naive) alarms this shift, per patient and for the whole ward."""
+    ward = client.app_state.ward
+    rt = ward.runtimes["p1"]
+    now = time.time()
+    eng = rt.pipeline.alerts
+    eng.start_t = now - 600
+    eng._raise("rr_low", 2, "Breathing rate 7/min for 65 s (baseline 15/min), signal confidence high", now)
+    rt.pipeline.naive.alarm_times.extend([now - 30, now - 20, now - 10])
+    rt.pipeline.naive.alarms += 3
+    body = client.get("/api/patients").json()
+    shift = body["shift"]
+    assert set(shift) == SHIFT and shift["start_t"] <= now < shift["end_t"]
+    assert shift["name"] in ("Day", "Night") and shift["label"].startswith(shift["name"] + " shift")
+    row = next(r for r in body["patients"] if r["id"] == "p1")
+    assert row["shift_alarms"] == {"smart": 1, "naive": 3}
+    assert all(set(r["shift_alarms"]) == {"smart", "naive"} for r in body["patients"])
+    assert shift["smart"]["alarms"] == sum(r["shift_alarms"]["smart"] for r in body["patients"]) >= 1
+    assert shift["naive"]["alarms"] == sum(r["shift_alarms"]["naive"] for r in body["patients"]) >= 3
+    assert shift["patients"] == 6
+    hours = max(shift["hours"], client.app_state.cfg.display.min_rate_hours)
+    assert shift["naive"]["per_hour"] == pytest.approx(shift["naive"]["alarms"] / hours, abs=0.1)
+
+
+def test_alarms_before_the_shift_do_not_count(client):
+    from server.patients import shift_window
+    ward = client.app_state.ward
+    rt = ward.runtimes["p2"]
+    start = shift_window(client.app_state.cfg, time.time())["start_t"]
+    rt.pipeline.naive.alarm_times.extend([start - 120, start - 60, start + 1])
+    row = next(r for r in client.get("/api/patients").json()["patients"] if r["id"] == "p2")
+    assert row["shift_alarms"]["naive"] == 1

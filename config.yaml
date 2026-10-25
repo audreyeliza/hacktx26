@@ -284,3 +284,5 @@ demo:                         # demo-friendly display behaviour; never changes a
 
 display:                      # how times are shown to people (digest, chart, summaries)
   timezone: America/Chicago   # explicit, so output does not depend on the machine's timezone
+  shift_change_hours: [7, 19] # local hours when nursing shifts change (day 7 AM, night 7 PM)
+  min_rate_hours: 0.25        # per-hour rates use at least this many hours (no 40/h after 3 min)

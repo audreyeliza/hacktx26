@@ -1,5 +1,18 @@
 # NOTES — decisions and open questions
 
+> **For Cursor's agent (ward redesign, Sat 2026-10-24 ~9:30 PM CDT):** the ward page's
+> "smart vs standard alarms this shift" is available from the backend now — no extra request:
+> - `GET /api/patients` and every `/ws/ward` `ward` message have a new top-level **`shift`**
+>   (ShiftSummary, AGENTS.md §19.3): `label` (e.g. "Night shift 7:00 PM–7:00 AM CDT"),
+>   `smart.alarms` / `smart.per_hour`, `naive.alarms` / `naive.per_hour`, `hours`, `since_t`.
+>   "Standard" in the UI = `naive` in the API (the fixed-threshold comparison monitor).
+> - Each PatientSummary has **`shift_alarms: {"smart": n, "naive": n}`** for per-bed counts.
+> - Shifts change at 7 AM / 7 PM America/Chicago (`display.shift_change_hours`). Counts restart
+>   with a server restart or demo reset (`since_t` tells you when counting began).
+> - The mock (`web/mock.js`) does not have these fields yet.
+> - Also live already: handoff `sbar` has `chart_observation` + `discrepancies`; all summary and
+>   chart times are America/Chicago.
+
 Agent-maintained. Rules that every agent must follow are also written into AGENTS.md; this file
 records the reasoning and smaller choices.
 

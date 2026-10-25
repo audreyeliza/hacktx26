@@ -16,7 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from server.alerts import AlertEngine, NaiveMonitor
+from server.alerts import AlertEngine, NaiveMonitor, count_since
 from server.config import Config
 from server.events import EventDetector
 from server.ingest import RingBuffer
@@ -122,3 +122,8 @@ class Pipeline:
 
     def monitors(self) -> dict[str, Any]:
         return self.alerts.counts(self.naive.alarms)
+
+    def alarms_since(self, since_t: float) -> dict[str, int]:
+        """Smart and naive alarm counts since a time (e.g. the start of the shift)."""
+        return {"smart": count_since(self.alerts.alarm_times, since_t),
+                "naive": count_since(self.naive.alarm_times, since_t)}

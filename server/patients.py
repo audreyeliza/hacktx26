@@ -15,7 +15,9 @@ import random
 import re
 import time
 from collections import deque
+from datetime import datetime, timedelta
 from typing import Annotated, Any, Literal, Union
+from zoneinfo import ZoneInfo
 
 import numpy as np
 from pydantic import BaseModel, Field
@@ -77,6 +79,22 @@ class WardError(Exception):
         super().__init__(detail)
         self.status = status
         self.detail = detail
+
+
+def shift_window(cfg: Config, now_t: float) -> dict[str, Any]:
+    """The nursing shift containing now_t: shifts change at display.shift_change_hours, local
+    time (display.timezone; daylight-saving changes handled by zoneinfo)."""
+    tz = ZoneInfo(cfg.display.timezone)
+    now = datetime.fromtimestamp(now_t, tz)
+    hours = sorted(cfg.display.shift_change_hours)
+    marks = sorted(datetime(d.year, d.month, d.day, h, tzinfo=tz)
+                   for d in (now - timedelta(days=1), now, now + timedelta(days=1)) for h in hours)
+    start = max(m for m in marks if m <= now)
+    end = min(m for m in marks if m > now)
+    name = "Day" if len(hours) == 2 and start.hour == hours[0] else "Night" if len(hours) == 2 else "Shift"
+    fmt = lambda d: d.strftime("%I:%M %p").lstrip("0")
+    return {"name": name, "label": f"{name} shift {fmt(start)}–{fmt(end)} {start.strftime('%Z')}",
+            "start_t": start.timestamp(), "end_t": end.timestamp()}
 
 
 def bed_key(bed: str) -> tuple[int, str]:
@@ -496,13 +514,31 @@ class Ward:
     def listing(self, status: str = "admitted") -> dict[str, Any]:
         if status not in ("admitted", "discharged", "all"):
             raise WardError(400, "status must be admitted, discharged or all")
+        now = time.time()
+        shift = shift_window(self.cfg, now)
         rows = []
         for p in self.store.patients(None if status == "all" else status):
             rt = self.runtimes.get(p["id"])
-            rows.append(rt.summary() if rt is not None else self._discharged_summary(p))
+            row = rt.summary() if rt is not None else self._discharged_summary(p)
+            row["shift_alarms"] = (rt.pipeline.alarms_since(shift["start_t"]) if rt is not None
+                                   else {"smart": 0, "naive": 0})
+            rows.append(row)
         rows.sort(key=lambda r: (-r["tier"], -r["unacked_alerts"], bed_key(r["bed"])))
         counts = {str(t): sum(1 for r in rows if r["tier"] == t) for t in range(4)}
-        return {"patients": rows, "counts": counts, "generated_t": time.time()}
+        return {"patients": rows, "counts": counts, "shift": self._shift_totals(shift, rows, now),
+                "generated_t": now}
+
+    def _shift_totals(self, shift: dict[str, Any], rows: list[dict[str, Any]], now: float) -> dict[str, Any]:
+        """Ward-wide smart vs naive alarms this shift (admitted patients in this listing)."""
+        starts = [rt.pipeline.alerts.start_t for r in rows if (rt := self.runtimes.get(r["id"]))
+                  and rt.pipeline.alerts.start_t is not None]
+        since = max(shift["start_t"], min(starts)) if starts else shift["start_t"]
+        hours = max((now - since) / 3600.0, self.cfg.display.min_rate_hours)
+        total = {k: sum(r["shift_alarms"][k] for r in rows) for k in ("smart", "naive")}
+        return {**shift, "since_t": since, "hours": round((now - since) / 3600.0, 2),
+                "smart": {"alarms": total["smart"], "per_hour": round(total["smart"] / hours, 1)},
+                "naive": {"alarms": total["naive"], "per_hour": round(total["naive"] / hours, 1)},
+                "patients": sum(1 for r in rows if r["id"] in self.runtimes)}
 
     def process_all(self) -> None:
         for rt in list(self.runtimes.values()):

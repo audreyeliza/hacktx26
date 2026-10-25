@@ -302,6 +302,8 @@ class DemoCfg:
 @dataclass(frozen=True)
 class DisplayCfg:
     timezone: str
+    shift_change_hours: list[int]
+    min_rate_hours: float
 
 
 @dataclass(frozen=True)
