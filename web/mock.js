@@ -594,6 +594,7 @@ function summaryOf(p, t) {
     unacked_alerts: tier.unacked_alerts,
     risk_factors: Object.assign({}, p.risk_factors),
     updated_t: sec(t),
+    shift_alarms: { smart: monitorsFor(p, t).smart.alarms, naive: monitorsFor(p, t).naive.alarms },
   };
 }
 
@@ -623,7 +624,18 @@ function wardPayload(status) {
   });
   const counts = { "0": 0, "1": 0, "2": 0, "3": 0 };
   for (const s of summaries) counts[String(s.tier)] += 1;
-  return { patients: summaries, counts, generated_t: sec(t) };
+  const smart = summaries.reduce((n, s) => n + (s.shift_alarms ? s.shift_alarms.smart : 0), 0);
+  const naive = summaries.reduce((n, s) => n + (s.shift_alarms ? s.shift_alarms.naive : 0), 0);
+  return {
+    patients: summaries,
+    counts,
+    generated_t: sec(t),
+    shift: {
+      label: "This shift",
+      smart: { alarms: smart, per_hour: 0 },
+      naive: { alarms: naive, per_hour: 0 },
+    },
+  };
 }
 
 function deviceStatus(p, t) {

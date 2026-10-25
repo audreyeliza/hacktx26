@@ -1,82 +1,112 @@
 import {
-  $, api, boot, esc, eventLabel, fmt, fmtTime, liveSocket, postureLabel, qualityLabel, scenarioLabel, tierName,
+  $, api, boot, esc, eventLabel, fmt, liveSocket, postureLabel, tierName,
 } from "/static/common.js";
-
-const GLOSS = ["No active alert", "Review on rounds", "Needs attention", "Bedside response"];
 
 await boot();
 
+const TIERS = [3, 2, 1, 0];
+let filter = null;
+let latest = null;
+const previousRr = new Map();
+
 const tiers = $("tiers");
-tiers.innerHTML = [0, 1, 2, 3].map((tier) => `
-  <div class="tier-count" data-tier="${tier}" data-count="${tier}">
-    <span class="tier-count__name">${tierName(tier)}</span>
+tiers.innerHTML = TIERS.map((tier) => `
+  <button type="button" class="tier-chip" data-tier="${tier}" aria-pressed="false">
+    <span class="tier-chip__dot" aria-hidden="true"></span>
+    <span>${tierName(tier)}</span>
     <b>0</b>
-    <span class="fine">${GLOSS[tier]}</span>
-  </div>`).join("");
+  </button>`).join("");
+tiers.addEventListener("click", (ev) => {
+  const btn = ev.target.closest(".tier-chip");
+  if (!btn) return;
+  const tier = Number(btn.dataset.tier);
+  filter = filter === tier ? null : tier;
+  for (const chip of tiers.querySelectorAll(".tier-chip")) {
+    chip.setAttribute("aria-pressed", String(filter !== null && Number(chip.dataset.tier) === filter));
+  }
+  if (latest) paint(latest);
+});
+
+function signalOf(p) {
+  if (p.device_kind === "live" && p.link_ok === false && p.rr == null) {
+    return { kind: "off", rate: "No reading", hint: "Check sensor" };
+  }
+  if (p.quality === "sensor_off") return { kind: "off", rate: "No reading", hint: "Sensor off" };
+  if (p.rr == null || p.quality == null || p.quality === "unknown") {
+    return { kind: "starting", rate: "Starting up", hint: "First reading in about 15 s" };
+  }
+  if (p.quality === "motion" || (p.rr_conf != null && p.rr_conf < 0.6)) {
+    return { kind: "low", rate: fmt(p.rr, 0), hint: "Low confidence" };
+  }
+  return { kind: "good", rate: fmt(p.rr, 0), hint: "" };
+}
+
+function trendArrow(id, rr) {
+  const prev = previousRr.get(id);
+  if (rr != null) previousRr.set(id, rr);
+  if (prev == null || rr == null) return "";
+  if (rr > prev + 0.4) return "↑";
+  if (rr < prev - 0.4) return "↓";
+  return "";
+}
+
+function situation(p, signal) {
+  if (p.tier_reason) return p.tier_reason;
+  if (signal.kind === "off") return "No reading — check sensor";
+  if (signal.kind === "starting") return "Starting up — first reading in about 15 s";
+  if (p.last_event) {
+    return `${eventLabel(p.last_event.type)}, ${Math.round(p.last_event.duration_s)} s`;
+  }
+  return "No active alert.";
+}
 
 function paint(payload) {
-  for (const tier of [0, 1, 2, 3]) {
-    const node = tiers.querySelector(`[data-count="${tier}"] b`);
+  latest = payload;
+  for (const tier of TIERS) {
+    const node = tiers.querySelector(`[data-tier="${tier}"] b`);
     if (node) node.textContent = String(payload.counts[String(tier)] ?? 0);
   }
-  const board = $("board");
-  const ids = payload.patients.map((p) => p.id).join(",");
-  if (board.dataset.ids !== ids) {
-    board.dataset.ids = ids;
-    const head = `<div class="census-head" aria-hidden="true"><span>Bed</span><span>Patient</span><span>Resp.</span><span>Heart</span><span>Posture</span><span>Signal</span><span>Tier</span></div>`;
-    const rows = payload.patients.map(() => `
-      <a class="census" href="/">
-        <span class="census__bed"><small>Bed</small><b data-f="bed"></b></span>
-        <span class="census__who">
-          <span class="census__name" data-f="name"></span>
-          <span class="census__meta" data-f="meta"></span>
-          <span class="census__reason" data-f="reason"></span>
-        </span>
-        <span class="census__stat census__rr"><b data-f="rr"></b> <small>/min</small><small data-f="conf"></small></span>
-        <span class="census__stat census__hr"><b data-f="hr"></b> <small>bpm</small></span>
-        <span class="census__posture" data-f="posture"></span>
-        <span class="census__quality" data-f="quality"></span>
-        <span class="census__tier"><span data-f="tier"></span><small data-f="unacked"></small></span>
-      </a>`).join("");
-    board.innerHTML = payload.patients.length ? head + rows : `<p class="empty" style="padding:16px">No patients in this list.</p>`;
-  }
-  const rows = board.querySelectorAll(".census");
-  payload.patients.forEach((p, i) => fill(rows[i], p));
+  const shift = payload.shift;
+  $("shift-label").textContent = shift && shift.label ? shift.label : "This shift";
+  $("smart-n").textContent = shift && shift.smart ? String(shift.smart.alarms) : "—";
+  $("std-n").textContent = shift && shift.naive ? String(shift.naive.alarms) : "—";
+
+  const shown = filter == null ? payload.patients : payload.patients.filter((p) => p.tier === filter);
   const n = payload.patients.length;
-  $("lede").textContent = `${n} admitted ${n === 1 ? "patient" : "patients"}, highest alert tier first.`;
-  $("generated").textContent = payload.generated_t ? `Updated ${fmtTime(payload.generated_t)}` : "";
+  $("lede").textContent = `${n} ${n === 1 ? "patient" : "patients"}`;
+
+  const board = $("board");
+  const head = `<div class="census-head" aria-hidden="true"><span>Bed</span><span>Patient</span><span>Breathing</span><span>Heart</span><span>Position</span><span>Status</span></div>`;
+  if (!shown.length) {
+    board.innerHTML = head + `<p class="empty census-empty">${filter == null ? "No patients in this list." : `No ${tierName(filter).toLowerCase()} patients.`}</p>`;
+    return;
+  }
+  board.innerHTML = head + shown.map((p) => row(p)).join("");
 }
 
-function fill(row, p) {
-  if (!row) return;
-  row.dataset.tier = String(p.tier);
-  row.href = `/patients/${encodeURIComponent(p.id)}`;
-  row.setAttribute("aria-label", `Bed ${p.bed}, ${p.name}, ${tierName(p.tier)}, breathing ${p.rr ?? "unavailable"} per minute`);
-  text(row, "bed", p.bed);
-  text(row, "name", p.name);
-  const assign = p.device_kind === "live"
-    ? (p.link_ok ? "Live wearable · link up" : "Live wearable · link lost")
-    : `Simulated · ${scenarioLabel(p.scenario)}`;
-  const last = p.last_event ? `${eventLabel(p.last_event.type)} · ${Math.round(p.last_event.duration_s)} s` : "No events";
-  text(row, "meta", `${assign} · ${last}`);
-  const reason = row.querySelector('[data-f="reason"]');
-  reason.hidden = !p.tier_reason;
-  reason.textContent = p.tier_reason || "";
-  text(row, "rr", fmt(p.rr, 1));
-  const conf = row.querySelector('[data-f="conf"]');
-  conf.textContent = p.rr_conf == null ? "" : ` conf ${fmt(p.rr_conf, 2)}`;
-  text(row, "hr", fmt(p.hr, 0));
-  text(row, "posture", postureLabel(p.posture));
-  const q = row.querySelector('[data-f="quality"]');
-  q.textContent = qualityLabel(p.quality);
-  q.className = `census__quality q-${p.quality || "unknown"}`;
-  text(row, "tier", tierName(p.tier));
-  text(row, "unacked", p.unacked_alerts ? `${p.unacked_alerts} unacknowledged` : "");
-}
-
-function text(row, field, value) {
-  const node = row.querySelector(`[data-f="${field}"]`);
-  if (node) node.textContent = value;
+function row(p) {
+  const signal = signalOf(p);
+  const arrow = trendArrow(p.id, p.rr);
+  const live = p.device_kind === "live";
+  const tag = live ? `<span class="tag tag-live">Live sensor</span>` : `<span class="tag">Simulated</span>`;
+  const warn = signal.kind === "good" ? "" : `<span class="sig-warn" title="${esc(signal.hint || signal.kind)}">!</span>`;
+  const rate = signal.kind === "good" || signal.kind === "low"
+    ? `<b>${esc(signal.rate)}</b> <small>/min</small> ${arrow ? `<span class="trend-arrow">${arrow}</span>` : ""} ${warn}`
+    : `<b class="rate-note">${esc(signal.rate)}</b> ${warn}`;
+  const heart = p.hr == null ? "—" : fmt(p.hr, 0);
+  const ack = p.unacked_alerts ? `${p.unacked_alerts} to ack.` : "";
+  return `
+    <a class="census" data-tier="${p.tier}" href="/patients/${encodeURIComponent(p.id)}" aria-label="Bed ${esc(p.bed)}, ${esc(p.name)}, ${esc(tierName(p.tier))}">
+      <span class="census__bed"><span>Bed</span><b>${esc(p.bed)}</b></span>
+      <span class="census__who">
+        <span class="census__name">${esc(p.name)} ${tag}</span>
+        <span class="census__reason">${esc(situation(p, signal))}</span>
+      </span>
+      <span class="census__stat census__rr">${rate}</span>
+      <span class="census__stat census__hr"><b>${esc(heart)}</b></span>
+      <span class="census__posture">${esc(postureLabel(p.posture))}</span>
+      <span class="census__tier"><span>${esc(tierName(p.tier))}</span><small>${esc(ack)}</small></span>
+    </a>`;
 }
 
 try {

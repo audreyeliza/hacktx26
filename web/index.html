@@ -12,15 +12,17 @@
   <a class="skip" href="#main">Skip to content</a>
   <header class="top" id="chrome"><a class="brand" href="/">BreathWatch</a></header>
   <main class="wrap" id="main">
-    <div class="page-head">
+    <div class="ward-head">
       <div>
-        <p class="eyebrow">General ward</p>
         <h1>Ward</h1>
         <p class="lede" id="lede">Admitted patients, highest alert tier first.</p>
       </div>
-      <p class="fine" id="generated"></p>
+      <div class="shift-stat" id="shift-stat">
+        <p class="fine" id="shift-label">This shift</p>
+        <p class="shift-stat__nums"><b id="smart-n">—</b> smart alarms <span>vs <b id="std-n">—</b> standard</span></p>
+      </div>
     </div>
-    <section class="tiers" id="tiers" aria-label="Patients by alert tier" aria-live="polite"></section>
+    <div class="tier-filters" id="tiers" role="toolbar" aria-label="Filter by status"></div>
     <div class="board" id="board" aria-label="Patient census"></div>
   </main>
   <footer class="footer">Research prototype — not a medical device. Thresholds are for demonstration.</footer>
