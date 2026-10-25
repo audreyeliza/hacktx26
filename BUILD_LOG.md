@@ -46,6 +46,8 @@ Honest record of which tool or agent produced each part of the project.
 | Sat night | Cursor (Grok 4.7) | UI pass 4 | Add-patient form: open-bed list, risk-factor chips, live wearable or a demo scenario. Speed, loop, and device id sit under Advanced for the admin. |
 | Sat night | Cursor (Grok 4.7) | UI pass 5 | Device page says whether the wearable is connected, in words, with a status dot. The public demo replaces the controls with one sentence. |
 | Sat night | Cursor (Grok 4.7) | UI pass 6 | At phone width the ward rows stack and the vital strip wraps to two by two. Nothing new animates. |
+| Sat night | Claude Code | ward | Shift summary: rates null until 30 min of counting (counts always); note for Cursor. |
+| Sat night | Claude Code | M9 prep | `tools/record_session.py` guided recording protocol, record-mode sessions, `server/train_quality.py` (features, honest split, confusion matrix, `--simulate`); tested against the simulator only. |
 
 ## Prompts that worked
 

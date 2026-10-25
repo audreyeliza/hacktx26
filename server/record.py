@@ -4,6 +4,7 @@ signal-quality model (milestone 9). Raw waveforms are only ever stored here."""
 from __future__ import annotations
 
 import csv
+import re
 import time
 from pathlib import Path
 from typing import IO, Any
@@ -12,6 +13,7 @@ from server.config import ROOT, Config
 from server.ingest import CHANNELS
 
 COLUMNS = ("device", "seq", "k", "t0_ms", *CHANNELS, "label")
+NAME = re.compile(r"^[A-Za-z0-9_-]{1,64}$")   # session / segment names: no path tricks
 
 
 def _shown(path: Path) -> str:
@@ -30,6 +32,7 @@ class Recorder:
         self.started_t: float | None = None
         self.samples = 0
         self.path: Path | None = None
+        self.session: str | None = None
         self._file: IO[str] | None = None
         self._writer: Any = None
 
@@ -40,16 +43,23 @@ class Recorder:
     def status(self) -> dict[str, Any] | None:
         if not self.active:
             return None
-        return {"label": self.label, "started_t": self.started_t, "samples": self.samples,
-                "file": _shown(self.path) if self.path else None}
+        return {"label": self.label, "session": self.session, "started_t": self.started_t,
+                "samples": self.samples, "file": _shown(self.path) if self.path else None}
 
-    def start(self, label: str) -> dict[str, Any]:
+    def start(self, label: str, session: str | None = None, segment: str | None = None) -> dict[str, Any]:
+        """Start a labelled recording. With `session`, files go to <dir>/<session>/ (one folder per
+        guided session, tools/record_session.py) and are named <segment>_<label>.csv."""
         if label not in self.cfg.record.labels:
             raise ValueError(f"label must be one of {self.cfg.record.labels}")
+        for name in (session, segment):
+            if name is not None and not NAME.match(name):
+                raise ValueError("session / segment may only use letters, digits, '-' and '_' (max 64)")
         self.stop()
-        self.dir.mkdir(parents=True, exist_ok=True)
+        folder = self.dir / session if session else self.dir
+        folder.mkdir(parents=True, exist_ok=True)
         stamp = time.strftime("%Y%m%d-%H%M%S")
-        self.path = self.dir / f"{stamp}_{label}.csv"
+        self.path = folder / (f"{segment}_{label}.csv" if segment else f"{stamp}_{label}.csv")
+        self.session = session
         self._file = self.path.open("w", newline="")
         self._writer = csv.writer(self._file)
         self._writer.writerow(COLUMNS)

@@ -170,3 +170,60 @@ def posture(block: np.ndarray, cfg: Config, rotation: np.ndarray | None = None) 
         if g[axis] * sign >= cfg.quality.posture_min_g:
             return name
     return "unknown"
+
+
+# --------------------------------------------------------------------------- v1 features (ML)
+
+FEATURE_CHANNELS = ("pressure", "therm", "pulse")
+
+
+def _band_stats(x: np.ndarray, fs: float, band: tuple[float, float]) -> tuple[float, float]:
+    """(dominant frequency in band [Hz], its power share of the band power)."""
+    n = len(x)
+    spec = np.abs(np.fft.rfft((x - x.mean()) * np.hanning(n), n=n * 4)) ** 2
+    freqs = np.fft.rfftfreq(n * 4, 1.0 / fs)
+    sel = (freqs >= band[0]) & (freqs <= band[1])
+    if not sel.any() or spec[sel].sum() <= 0:
+        return 0.0, 0.0
+    k = int(np.argmax(spec[sel]))
+    f0 = float(freqs[sel][k])
+    near = sel & (np.abs(freqs - f0) <= 0.05)
+    return f0, float(spec[near].sum() / spec[sel].sum())
+
+
+def window_features(block: np.ndarray, fs: float, cfg: Config) -> dict[str, float]:
+    """Features for the v1 quality model (AGENTS.md §7): per-channel std, range, clipping
+    fraction, median level, dominant frequency and its power share; belt-accel and belt-airflow
+    correlation; motion energy mean/max; belt vs accel rate disagreement. block: (channels, n)
+    raw samples without NaN."""
+    from server.signals import accel_effort, bandpass   # local: signals imports this module
+    s, q = cfg.signals, cfg.quality
+    feats: dict[str, float] = {}
+    for c in FEATURE_CHANNELS:
+        x = block[CH[c]].astype(float)
+        lo, hi = np.percentile(x, [1, 99])
+        clipped = (x <= q.clip_margin_counts) | (x >= cfg.contract.adc_max - q.clip_margin_counts)
+        band = s.pulse_band_hz if c == "pulse" else s.resp_band_hz
+        f0, share = _band_stats(x, fs, band)
+        feats.update({f"{c}_std": float(x.std()), f"{c}_range": float(hi - lo), f"{c}_clip": float(clipped.mean()),
+                      f"{c}_median": float(np.median(x)), f"{c}_dom_hz": f0, f"{c}_dom_share": share})
+    acc = block[[CH["ax"], CH["ay"], CH["az"]]].astype(float)
+    belt = bandpass(block[CH["pressure"]].astype(float), fs, s.resp_band_hz, s.filter_order)
+    air = bandpass(block[CH["therm"]].astype(float), fs, s.resp_band_hz, s.filter_order)
+    eff = accel_effort(acc, fs, s)
+
+    def corr(a: np.ndarray, b: np.ndarray) -> float:
+        return float(abs(np.corrcoef(a, b)[0, 1])) if a.std() > 0 and b.std() > 0 else 0.0
+
+    feats["belt_accel_corr"] = corr(belt, eff)
+    feats["belt_airflow_corr"] = corr(belt, air)
+    feats["accel_effort_std"] = float(eff.std())
+    sos = _highpass_sos(s.motion_highpass_hz, fs, s.filter_order)
+    mag = np.sqrt((sosfiltfilt(sos, acc, axis=1) ** 2).sum(axis=0))
+    m = max(1, int(s.motion_rms_window_s * fs))
+    rms = [float(np.sqrt(np.mean(mag[i:i + m] ** 2))) for i in range(0, len(mag) - m + 1, m)] or [0.0]
+    feats["motion_mean"] = float(np.mean(rms))
+    feats["motion_max"] = float(np.max(rms))
+    acc_f0, _ = _band_stats(eff, fs, s.resp_band_hz)
+    feats["rate_disagreement_bpm"] = abs(feats["pressure_dom_hz"] - acc_f0) * 60.0
+    return feats

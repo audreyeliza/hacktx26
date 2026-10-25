@@ -140,6 +140,8 @@ class SourceRequest(BaseModel):
 
 class RecordRequest(BaseModel):
     label: str
+    session: str | None = None   # tools/record_session.py: one folder per guided session
+    segment: str | None = None   # e.g. "03-slow_breathing" → file name prefix
 
 
 class ResetRequest(BaseModel):
@@ -536,7 +538,7 @@ def create_app(cfg: Config | None = None, source: str | None = None) -> FastAPI:
     async def record_start(req: RecordRequest, user: dict = Depends(admin_only)) -> dict[str, Any]:
         not_public("recording")
         try:
-            return {"recording": st().recorder.start(req.label)}
+            return {"recording": st().recorder.start(req.label, req.session, req.segment)}
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 

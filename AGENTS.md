@@ -412,6 +412,10 @@ Work in this order. Each milestone must pass its check before moving on. Commit 
    waveforms.
 9. **Record mode + quality v1.** Recordings saved as CSV with labels; `train_quality.py`
    trains, saves `data/quality_model.joblib`, prints a confusion matrix; server uses it.
+   **Prep done:** `tools/record_session.py` (guided protocol for the real wearable → one folder per
+   session, `<NN-step>_<label>.csv` + `manifest.json`), `python -m server.train_quality` trains from
+   those folders (or `--simulate`). **Still to do:** real recordings, and wiring the server to load
+   the model (v0 rules stay until then).
 10. **Polish:** demo script works end to end from `POST /api/demo/reset`. Runbook: `DEMO.md`.
     - **"Calibrate supine" control:** a dashboard button (and `POST /api/calibrate/supine`) records
       the mean gravity vector over a few seconds while the patient lies flat; posture is then
@@ -819,7 +823,7 @@ PatientCreate:
 | `GET /api/admin/device` | — | `200 {"source": "udp", "source_status": "…", "link_ok": true, "stats": {…ingest stats…}, "assigned_patient_id": "p4", "unassigned_packets": 0, "network": {"ips": ["172.20.10.10"], "http_port": 8000, "udp_port": 5005}, "recording": null \| {"label": "motion", "started_t": …, "samples": 1200}}` |
 | `POST /api/source` | `{"source": "serial:auto", "speed": 1, "loop": false}` | `200` same body as `GET /api/admin/device` |
 | `GET /api/serial/ports` | — | `200 [{"device": "/dev/cu.usbmodem1101", "description": "…", "vid": 11914, "pid": 5, "is_pico": true}]` |
-| `POST /api/record/start` | `{"label": "motion"}` (§12 labels) | `200 {"recording": {…}}` |
+| `POST /api/record/start` | `{"label": "motion", "session": null, "segment": null}` (§12 labels; `session`/`segment` optional, `[A-Za-z0-9_-]{1,64}`) | `200 {"recording": {"label", "session", "started_t", "samples", "file"}}`; with a session the file is `data/recordings/<session>/<segment>_<label>.csv` |
 | `POST /api/record/stop` | — | `200 {"recording": null, "file": "data/recordings/….csv"}` |
 | `POST /api/demo/reset` | `{"reseed_ward": false}` | `200 {"patients": [PatientSummary], …}` (same as `GET /api/patients`). Clears runtime state, events, alerts and vitals of all patients and restarts simulators; `reseed_ward: true` also deletes all patients and re-creates the default ward |
 

@@ -307,6 +307,19 @@ class DisplayCfg:
 
 
 @dataclass(frozen=True)
+class TrainCfg:
+    recordings_dir: str
+    window_s: float
+    hop_s: float
+    trim_s: float
+    min_windows_per_class: int
+    test_fraction: float
+    n_estimators: int
+    max_depth: int
+    label_map: dict[str, str]
+
+
+@dataclass(frozen=True)
 class Config:
     contract: ContractCfg
     network: NetworkCfg
@@ -327,6 +340,7 @@ class Config:
     public_demo: PublicDemoCfg
     demo: DemoCfg
     display: DisplayCfg
+    train: TrainCfg
 
 
 def _build(cls: type, raw: dict[str, Any], where: str) -> Any:
@@ -349,6 +363,8 @@ def _build(cls: type, raw: dict[str, Any], where: str) -> Any:
                 kwargs[name] = [_build(item, v, f"{where}.{name}[{i}]") for i, v in enumerate(value)]
             else:
                 kwargs[name] = list(value)
+        elif origin is dict:
+            kwargs[name] = dict(value)
         elif origin is tuple:
             kwargs[name] = tuple(float(v) for v in value)
         elif hint is float:

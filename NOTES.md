@@ -431,6 +431,26 @@ records the reasoning and smaller choices.
 - Cached summaries cleared on the public server (5 total, in two passes) and locally (0 there);
   `python -m server.store --clear-summaries` does it.
 
+## M9 prep: guided recording + training (Sat night)
+
+- **`tools/record_session.py`** (run on the Mac with the server up and the wearable streaming):
+  signs in as demo admin, preflight (source must be serial/udp, packets must be arriving, a patient
+  must have the live device), then 11 steps — settle 20 s, clean 60 s, motion 30 s, rest, slow
+  breathing 60 s (in/out pacer), rest, breath-hold with effort 30 s, rest 45 s, relaxed breath-hold
+  25 s, rest 45 s, thermistor unplugged 60 s (~7 min). Safety line before each hold; Ctrl+C stops a
+  step early and keeps what was recorded. `--list`, `--skip LABEL`, `--participant`, `--notes`.
+  Output: `data/recordings/<session>/<NN-step>_<label>.csv` + `manifest.json`.
+- Record mode gained optional `session` / `segment` names (`[A-Za-z0-9_-]{1,64}`, so no path tricks).
+- **`python -m server.train_quality`**: 10 s windows (5 s hop, adaptive edge trim, never across a seq
+  gap), 24 §7 features (`quality.window_features`), labels mapped to classes (breath-holds and slow
+  breathing → `clean`), RandomForest (200 trees, depth 10, balanced). Evaluation: newest session held
+  out when there are ≥ 2 sessions, else last 30 % of each recording (no overlap; warns when a class
+  has no test windows). Saves `data/quality_model.joblib` with the feature list and metrics.
+- On simulator data (`--simulate`, 2 sessions): 100 % on the held-out session — expected for
+  idealized data. **Motion is the thin class** (a 30 s step gives only ~4–5 windows): record 3+
+  sessions, possibly with a longer motion step, before trusting real results.
+- Not run against any hardware. The server does not load the model yet (v0 rules still decide).
+
 ## Clinical app shell contract (§19) — choices made while writing it
 
 - **Both WebSockets:** a light `/ws/ward` (summaries + alert pushes) for the overview and a heavy

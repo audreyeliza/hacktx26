@@ -286,3 +286,20 @@ display:                      # how times are shown to people (digest, chart, su
   timezone: America/Chicago   # explicit, so output does not depend on the machine's timezone
   shift_change_hours: [7, 19] # local hours when nursing shifts change (day 7 AM, night 7 PM)
   rates_after_hours: 0.5      # shift alarm rates (per hour) only once counting covers 30 min; counts always
+
+train:                        # signal-quality model v1 (milestone 9): python -m server.train_quality
+  recordings_dir: data/recordings
+  window_s: 10                # = quality.window_s
+  hop_s: 5
+  trim_s: 2                   # drop this much at each end of a recording (getting into / out of the task)
+  min_windows_per_class: 5
+  test_fraction: 0.3          # single-session evaluation: last 30 % of each recording, no overlap
+  n_estimators: 200
+  max_depth: 10
+  label_map:                  # recording label -> quality class
+    clean: clean
+    slow_breathing: clean
+    breath_hold_effort: clean
+    breath_hold_no_effort: clean
+    motion: motion
+    sensor_off: sensor_off
