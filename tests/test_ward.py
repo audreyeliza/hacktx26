@@ -153,7 +153,7 @@ def test_patient_crud_and_conflicts(client):
     assert r.status_code == 201
     p = r.json()
     assert set(p) == PATIENT and p["id"] == "p7" and p["status"] == "admitted" and p["notes"] == "hi"
-    assert p["device"] == {"kind": "simulator", "scenario": "normal", "speed": 20.0, "loop": True}
+    assert p["device"] == {"kind": "simulator", "scenario": "normal", "speed": 20.0, "loop": True, "start_s": None}
     assert client.get("/api/patients/p7").json() == p
     # conflicts
     assert client.post("/api/patients", json=new_patient(bed="9")).status_code == 409
