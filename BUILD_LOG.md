@@ -53,6 +53,7 @@ Honest record of which tool or agent produced each part of the project.
 | Sat night | Cursor (Grok 4.7) | rename | User-facing product name is Respiro: `PRODUCT_NAME`, page titles, header, and the docs. Internal identifiers stay breathwatch. `server/` and `tests/` left for Claude Code. |
 | Sat night | Cursor (Grok 4.7) | rename | Server copy says Respiro: Gemini prompt, digest, chart title, API title, and CLI help. Cached summaries cleared. Identifiers such as `BREATHWATCH_CONFIG` and `data/breathwatch.db` stay. |
 | Sat night | Claude Code | M9 | Quality model v1 wired into the server with rules fallback and a real-data requirement (recording provenance), reload endpoint, "Signal quality" panel on the admin page (small `web/admin.*` change on request). |
+| Sun morning | Cursor (Grok 4.7) | public wearable | `PUBLIC_DEMO_WEARABLE=1` keeps the live bed and opens UDP 5005 so the Pico can send to tryrespiro.tech. Serial, recording, and source switching stay locked. |
 
 ## Prompts that worked
 

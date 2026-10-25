@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 from server.config import Config
 from server.ingest import CH, Ingest, SimulatorSource, Stream
 from server.pipeline import Pipeline, public_event
-from server.public_demo import simulated_device
+from server.public_demo import accept_wearable, simulated_device
 from server.quality import posture, supine_rotation
 from server.simulator import SCENARIO_NAMES, Simulator
 from server.store import Store
@@ -363,11 +363,14 @@ class Ward:
     async def start(self) -> None:
         if not self.store.patients():
             await self.seed()
-        if self.public:   # a database from a non-public run may still have the live bed
+        if self.public and not accept_wearable():
+            # a database from a non-public run may still have the live bed
             for p in self.store.patients("admitted"):
                 if p["device"]["kind"] == "live":
                     self.store.save_patient({**p, "device": simulated_device(self.cfg)})
                     log.info("public demo: %s (bed %s) now simulated", p["id"], p["bed"])
+        elif self.public and accept_wearable():
+            self._restore_live_bed()
         for p in self.store.patients("admitted"):
             await self._start_runtime(p, backfill=True)
 
@@ -377,7 +380,7 @@ class Ward:
 
     async def seed(self) -> None:
         for rec in self.cfg.ward.seed:
-            if self.public and rec["device"]["kind"] == "live":
+            if self.public and not accept_wearable() and rec["device"]["kind"] == "live":
                 rec = {**rec, "device": simulated_device(self.cfg)}
             self._insert(PatientCreate.model_validate(rec))
         log.info("seeded default ward (%d patients)", len(self.cfg.ward.seed))
@@ -387,6 +390,21 @@ class Ward:
         self.runtimes[patient["id"]] = rt
         await rt.start(backfill)
         return rt
+
+    def _restore_live_bed(self) -> None:
+        """Put the seeded live bed back on the wearable after a simulated public run."""
+        seeded = next((rec for rec in self.cfg.ward.seed if rec["device"]["kind"] == "live"), None)
+        if seeded is None:
+            return
+        device = {"kind": "live", "device_id": seeded["device"]["device_id"]}
+        for p in self.store.patients("admitted"):
+            if p["bed"] != str(seeded["bed"]):
+                continue
+            if p["device"] == device:
+                return
+            self.store.save_patient({**p, "device": device, "calibration": None})
+            log.info("public demo: %s (bed %s) is the live wearable again", p["id"], p["bed"])
+            return
 
     # ---- routing (live wearable)
     def route(self, device_id: str) -> Stream | None:
@@ -417,7 +435,8 @@ class Ward:
 
     # ---- CRUD
     def _check_conflicts(self, bed: str, device: dict[str, Any], exclude: str | None = None) -> None:
-        if self.public and device["kind"] == "live":
+        if self.public and device["kind"] == "live" and not (
+                accept_wearable() and device.get("device_id") == self.cfg.ward.live_device_id):
             raise WardError(400, "the live wearable is disabled in the public demo; use a simulator scenario")
         for p in self.store.patients("admitted"):
             if p["id"] == exclude:

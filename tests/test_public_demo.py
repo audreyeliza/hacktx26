@@ -49,6 +49,22 @@ def test_2_simulated_beds_only(public):
     assert public.get("/api/state").status_code == 404           # no live patient for the legacy alias
 
 
+def test_wearable_udp_keeps_the_live_bed(auth_cfg, monkeypatch):
+    monkeypatch.setenv("PUBLIC_DEMO", "1")
+    monkeypatch.setenv("PUBLIC_DEMO_WEARABLE", "1")
+    cfg = with_overrides(auth_cfg, llm={"provider": "fake"})
+    app = create_app(cfg)
+    with TestClient(app, base_url="https://testserver") as c:
+        assert c.get("/api/public-config").json()["live_device"] is True
+        assert app.state.bw.ingest.source is not None
+        assert app.state.bw.ingest.source.name == "udp"
+        sign_in(c, "admin")
+        bed4 = next(r for r in c.get("/api/patients").json()["patients"] if r["bed"] == "4")
+        assert bed4["device_kind"] == "live"
+        assert c.post("/api/source", json={"source": "serial:auto"}).status_code == 403
+        assert c.get("/api/serial/ports").status_code == 403
+
+
 def test_ward_size_is_capped(public):
     sign_in(public)
     body = {"name": "x", "bed": "9", "risk_factors": RF, "device": {"kind": "simulator", "scenario": "normal"}}

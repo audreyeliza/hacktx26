@@ -934,6 +934,9 @@ Implemented in `server/public_demo.py` + `server/app.py` + `server/patients.py`;
 2. **Simulated beds only:** no UDP or serial listener and no bedside commands; the seeded live bed
    becomes a looping `public_demo.live_bed_scenario` (`demo`) simulator, also in a database made
    by a non-public run. Creating or switching a patient to a live device → `400`.
+   **Exception:** `PUBLIC_DEMO_WEARABLE=1` keeps that bed on `patch-01`, listens for the Pico on
+   UDP 5005, and sends bedside commands. Serial, recording, and source switching stay locked.
+   The firewall must allow `5005/udp`. USB serial still cannot reach this server.
 3. **Admin locked:** `POST /api/source`, `GET /api/serial/ports`, `POST /api/record/start` → `403`
    ("… is disabled in the public demo"). `POST /api/demo/reset` at most once per
    `reset_cooldown_s` (120 s) for the whole site → `429` with `Retry-After`.

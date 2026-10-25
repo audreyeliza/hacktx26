@@ -26,6 +26,15 @@ def is_enabled(cfg: Config) -> bool:
     return cfg.public_demo.enabled or os.environ.get("PUBLIC_DEMO", "").strip().lower() in TRUE
 
 
+def accept_wearable() -> bool:
+    """PUBLIC_DEMO_WEARABLE=1: keep the live bed and listen for the Pico on UDP.
+
+    Serial, recording, and source switching stay locked. The Pico must send to this
+    host's public address; USB serial cannot reach a remote server.
+    """
+    return os.environ.get("PUBLIC_DEMO_WEARABLE", "").strip().lower() in TRUE
+
+
 def simulated_device(cfg: Config) -> dict[str, Any]:
     return {"kind": "simulator", "scenario": cfg.public_demo.live_bed_scenario, "speed": 1.0, "loop": True,
             "start_s": cfg.public_demo.live_bed_start_s}

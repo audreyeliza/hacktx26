@@ -13,6 +13,7 @@ User=breathwatch
 Group=breathwatch
 WorkingDirectory=/opt/breathwatch
 Environment=PUBLIC_DEMO=1
+Environment=PUBLIC_DEMO_WEARABLE=1
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=MPLBACKEND=Agg

@@ -377,7 +377,9 @@ records the reasoning and smaller choices.
 
 ## Public demo deployed (Sun 2026-10-25)
 
-- **URL: https://149-28-251-200.sslip.io** (Vultr, Ubuntu 24.04.5, Dallas, 1 vCPU / 955 MB).
+- **URL: https://tryrespiro.tech** (also https://149-28-251-200.sslip.io). A record `@` → `149.28.251.200`. Caddy serves both names.
+- **Wearable:** `PUBLIC_DEMO_WEARABLE=1` keeps bed 4 on `patch-01` and listens on UDP 5005. Firewall must allow `5005/udp`. Pico `SERVER_IP` is `149.28.251.200` over Wi-Fi with a route to the internet. Admin source, serial, and record stay locked.
+- Vultr, Ubuntu 24.04.5, Dallas, 1 vCPU / 955 MB.
   Steps as run are in deploy/PUBLIC_DEMO.md. Users: `breathwatch` (system, runs the app),
   `audreybolyard` (SSH key only, passwordless sudo). SSH password and keyboard-interactive auth off
   (drop-in `00-breathwatch-hardening.conf`, verified a password attempt gets "Permission denied

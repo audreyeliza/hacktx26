@@ -29,7 +29,7 @@ from server.config import ROOT, Config, load_config
 from server.ingest import CH, Ingest, list_serial_ports, local_ips
 from server.llm import LLMUnavailable, Summarizer, render_chart
 from server.patients import PatientCreate, PatientRuntime, PatientUpdate, Ward, WardError
-from server.public_demo import RateLimiter, inject_banner, is_enabled
+from server.public_demo import RateLimiter, accept_wearable, inject_banner, is_enabled
 from server.quality_model import QualityModel
 from server.record import Recorder
 from server.simulator import SCENARIO_NAMES
@@ -281,7 +281,15 @@ def create_app(cfg: Config | None = None, source: str | None = None) -> FastAPI:
         state = State(cfg)
         app.state.bw = state
         await state.ward.start()
-        if state.public:
+        wearable = state.public and accept_wearable()
+        if wearable:
+            log.warning("PUBLIC DEMO mode: wearable UDP on port %s, admin still locked",
+                        cfg.network.udp_port)
+            try:
+                await state.ingest.set_source("udp")
+            except ValueError as exc:
+                log.error("%s; starting with no source", exc)
+        elif state.public:
             log.warning("PUBLIC DEMO mode: simulated beds only, no UDP/serial listener, admin locked")
         else:
             try:
@@ -292,7 +300,7 @@ def create_app(cfg: Config | None = None, source: str | None = None) -> FastAPI:
                 log.info("Dashboard: http://%s:%d   (Pico SERVER_IP=%s, UDP port %d)",
                          ip, cfg.network.http_port, ip, cfg.network.udp_port)
         tasks = [asyncio.create_task(processing_loop(state))]
-        if not state.public:
+        if not state.public or wearable:
             tasks.append(asyncio.create_task(bedside_loop(state)))
         yield
         for task in tasks:
@@ -400,7 +408,7 @@ def create_app(cfg: Config | None = None, source: str | None = None) -> FastAPI:
         """For the frontend (no sign-in needed): what this deployment allows (§20)."""
         public = st().public
         return {"public_demo": public, "banner": cfg.public_demo.banner if public else None,
-                "password_login": not public, "live_device": not public}
+                "password_login": not public, "live_device": (not public) or accept_wearable()}
 
     @app.get("/api/auth/demo-accounts")
     async def demo_accounts() -> list[dict[str, str]]:

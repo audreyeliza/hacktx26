@@ -129,7 +129,9 @@ Gotcha (hit on the real deploy): `sudo caddy validate` **as root** creates
 Validate as the `caddy` user as above, or `sudo chown caddy:caddy /var/log/caddy/breathwatch.log`.
 
 Caddy obtains a Let's Encrypt certificate right after the reload; open
-`https://149-28-251-200.sslip.io/login` and use a **Demo sign-in** button.
+`https://tryrespiro.tech` (also `https://149-28-251-200.sslip.io/login`) and use a **Demo sign-in** button.
+
+**Wearable on the public site** (`PUBLIC_DEMO_WEARABLE=1` in `deploy/breathwatch-public.service`): the live bed stays `patch-01` and the app listens for UDP on port 5005. Open it once: `sudo ufw allow 5005/udp`. On the Pico, `secrets.py` `SERVER_IP` is `149.28.251.200`, and the Pico's Wi-Fi must reach the public internet. USB serial still only reaches the computer the Pico is plugged into. Source switching, serial listing, and recording stay refused.
 
 **Switching to the .TECH domain (one line):** add the A record (§2), check `dig +short`, then
 
