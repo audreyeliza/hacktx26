@@ -1,4 +1,4 @@
-# BreathWatch — Devpost draft
+# Respiro — Devpost draft
 
 Paste each section into the matching Devpost field. Replace the placeholders before submitting.
 
@@ -16,7 +16,7 @@ We wanted a wearable a ward nurse could glance at, that refuses to alarm on garb
 
 ## What it does
 
-BreathWatch is a research prototype. It is not a medical device, and the thresholds are for demonstration.
+Respiro is a research prototype. It is not a medical device, and the thresholds are for demonstration.
 
 A chest patch measures breathing effort, nasal airflow, posture, motion, and heart rate, and streams samples to a hub. The hub runs a pipeline per patient: signal quality first, then breathing rate against that patient's own baseline, then a classification of obstructive apnea, central apnea, mixed apnea, or hypopnea. Alerts are tiered. Each one stores a reason a person can read. Low-confidence or motion-corrupted windows are logged and cannot raise an alarm. Risk factors such as opioids or suspected sleep apnea are shown to the nurse and included in the summary. They do not change the thresholds.
 

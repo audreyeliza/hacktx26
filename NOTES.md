@@ -36,6 +36,7 @@ records the reasoning and smaller choices.
    whitespace are not part of the contract. The simulator encodes compact JSON
    (`separators=(",", ":")`).
 7. **Repo root is `breathwatch/`** (no nested folder).
+8. **The product is called Respiro.** User-facing copy says Respiro. Internal identifiers still say breathwatch (repo folder, `data/breathwatch.db`, systemd units, `/opt/breathwatch`, the `breathwatch` user). → AGENTS.md intro.
 
 ## Smaller choices (M1)
 

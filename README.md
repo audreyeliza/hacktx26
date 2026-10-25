@@ -1,4 +1,4 @@
-# BreathWatch
+# Respiro
 
 A research prototype of a wearable breathing monitor for post-surgical patients on a general hospital ward. It watches breathing between the usual 4–6 hour vital checks, stays quiet when the signal is bad, and writes plain-language summaries of what the monitor already decided.
 
@@ -10,7 +10,7 @@ On a general ward, opioids can slow or stop breathing in the hours between check
 
 ## How it works
 
-BreathWatch is three pieces.
+Respiro is three pieces.
 
 1. **Wearable.** A Raspberry Pi Pico 2W on a chest belt samples at 50 Hz: chest-belt pressure and an accelerometer for breathing effort, a thermistor under the nose for airflow, the same accelerometer for posture and motion, and a finger sensor for heart rate. Every half-second it sends one JSON packet, over UDP or as a line on USB serial. A bedside LED and buzzer show the current alert tier.
 

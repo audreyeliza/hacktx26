@@ -1,4 +1,6 @@
-# BreathWatch — agent instructions
+# Respiro — agent instructions
+
+The product is called Respiro; internal identifiers still say breathwatch.
 
 Read this whole file before writing code. It is the single source of truth for this project.
 If something here conflicts with your assumptions, follow this file. If something is
@@ -457,7 +459,7 @@ Work in this order. Each milestone must pass its check before moving on. Commit 
 
 - Flash Raspberry Pi OS Lite 64-bit (Trixie); enable SSH.
 - Hotspot (NetworkManager):
-  `sudo nmcli device wifi hotspot ifname wlan0 ssid BreathWatch password <pass>` — the Pi is
+  `sudo nmcli device wifi hotspot ifname wlan0 ssid Respiro password <pass>` — the Pi is
   usually `10.42.0.1` on its own hotspot; confirm with `ip addr` and set `SERVER_IP` to match.
 - Internet for the Gemini API via Ethernet.
 - Host `audreybolyard.local`, user `audreybolyard`, project in `~/hacktx`, Python 3.13.5.
@@ -688,7 +690,7 @@ a tier-3 alert is not acknowledged within 60 s ("charge nurse"). `acknowledged_b
 }
 ```
 `shift_alarms`: alarms for this patient since the current shift began (see **ShiftSummary**) —
-`smart` = BreathWatch alerts raised or escalated at tier ≥ 1, `naive` = onsets of the naive
+`smart` = Respiro alerts raised or escalated at tier ≥ 1, `naive` = onsets of the naive
 fixed-threshold monitor (§8) on the same data. `tier` is the highest tier among the patient's **unacknowledged** alerts (status `active` or
 `awaiting_ack`), else 0. `unacked_alerts` counts both.
 `tier_reason` is that alert's `reason` (or `null`). `last_event` is `null` if none.

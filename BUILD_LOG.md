@@ -49,6 +49,7 @@ Honest record of which tool or agent produced each part of the project.
 | Sat night | Cursor (Grok 4.7) | shift header | Ward header reads "7 vs 23 this shift". Per-hour rates appear only when `shift.rates_available` is true. |
 | Sat night | Claude Code | ward | Shift summary: rates null until 30 min of counting (counts always); note for Cursor. |
 | Sat night | Claude Code | M9 prep | `tools/record_session.py` guided recording protocol, record-mode sessions, `server/train_quality.py` (features, honest split, confusion matrix, `--simulate`); tested against the simulator only. |
+| Sat night | Cursor (Grok 4.7) | rename | User-facing product name is Respiro: `PRODUCT_NAME`, page titles, header, and the docs. Internal identifiers stay breathwatch. `server/` and `tests/` left for Claude Code. |
 
 ## Prompts that worked
 

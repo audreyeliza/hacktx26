@@ -3,7 +3,7 @@ import { api, openSocket, SCENARIOS } from "/static/mock.js";
 export { api, openSocket, ApiError, USE_MOCK, SCENARIOS, RECORD_LABELS } from "/static/mock.js";
 
 /** Product name. Rename here only. */
-export const PRODUCT_NAME = "BreathWatch";
+export const PRODUCT_NAME = "Respiro";
 
 export const TIER_NAME = ["Stable", "Watch", "Notify", "Urgent"];
 

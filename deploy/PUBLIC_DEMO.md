@@ -1,4 +1,4 @@
-# BreathWatch public demo — deployment notes (Vultr Ubuntu + Caddy + .TECH domain)
+# Respiro public demo — deployment notes (Vultr Ubuntu + Caddy + .TECH domain)
 
 **Deployed** (Sun 2026-10-25, 00:2x UTC) to the team's Vultr server — Ubuntu 24.04.5, Dallas,
 1 vCPU / 1 GB — at **https://149-28-251-200.sslip.io** (sslip.io resolves the name to the IP, so
@@ -82,7 +82,7 @@ sudo ufw allow 80/tcp && sudo ufw allow 443/tcp && sudo ufw status
 Only SSH, 80 and 443 are open. Port 8000 is never exposed (the app listens on 127.0.0.1), and
 UDP 5005 stays closed (public mode does not listen for a wearable at all).
 
-## 4. Install BreathWatch
+## 4. Install Respiro
 
 Copy the code from the Mac (never the Mac's `.env`; the public demo gets its own key):
 

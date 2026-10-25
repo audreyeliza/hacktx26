@@ -1,4 +1,4 @@
-# BreathWatch — demo runbook
+# Respiro — demo runbook
 
 Research prototype — not a medical device. Thresholds are for demonstration.
 
