@@ -281,3 +281,6 @@ demo:                         # demo-friendly display behaviour; never changes a
   fast_warmup: true           # first breathing rate ~15 s after a start/reset instead of ~50 s
   warmup_min_s: 15            # clean data needed for the provisional rate
   warmup_conf_cap: 0.5        # below the 0.6 alert gate: a warm-up rate can never raise tier >= 1
+
+display:                      # how times are shown to people (digest, chart, summaries)
+  timezone: America/Chicago   # explicit, so output does not depend on the machine's timezone

@@ -16,7 +16,7 @@ from tests.conftest import with_overrides
 from tests.helpers import run_pipeline_full
 
 SUMMARY = {"kind", "patient_id", "alert_id", "text", "sbar", "model", "cached", "created_t"}
-SBAR_KEYS = {"situation", "background", "assessment", "recommendation"}
+SBAR_KEYS = {"situation", "background", "assessment", "recommendation", "chart_observation", "discrepancies"}
 PATIENT = {"id": "p-test", "name": "Jordan Avery", "bed": "4", "notes": "Post-op day 1",
            "risk_factors": {"opioids": True, "supplemental_o2": True, "osa": "suspected", "age_over_65": False},
            "device": {"kind": "simulator", "scenario": "demo"}, "status": "admitted", "admitted_t": 0.0,
@@ -246,3 +246,45 @@ def test_overloaded_model_falls_through_to_next(cfg, monkeypatch):
     with pytest.raises(LLMUnavailable):
         run(Summarizer(cfg, Store(":memory:"), prov).summarize("overnight", PATIENT, time.time()))
     assert tried == [cfg.llm.model]          # auth errors do not walk the fallback list
+
+
+
+def test_times_are_shown_in_the_display_timezone(cfg, demo_store, monkeypatch):
+    """The digest and chart use America/Chicago even when the process itself runs in UTC."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    monkeypatch.setenv("TZ", "UTC")
+    time.tzset()
+    try:
+        store, now_t, baseline, _ = demo_store
+        d = build_digest(cfg, store, PATIENT, now_t, "overnight", baseline)
+        local = datetime.fromtimestamp(now_t, ZoneInfo("America/Chicago"))
+        assert d["timezone"].startswith("America/Chicago (C")          # CDT or CST
+        assert d["time_range"]["to"].endswith(local.strftime("%I:%M %p %Z").lstrip("0"))
+        utc_clock = datetime.fromtimestamp(now_t, ZoneInfo("UTC")).strftime("%H:%M")
+        assert utc_clock not in json.dumps(d)                          # no UTC clock anywhere
+        at = d["events"]["recent"][0]["at"]
+        assert at.endswith(("AM", "PM")) and ":" in at
+        png = render_chart(cfg, store, PATIENT, now_t, baseline)       # renders with local-time axis
+        assert png[:4] == b"\x89PNG"
+    finally:
+        monkeypatch.delenv("TZ")
+        time.tzset()
+
+
+def test_handoff_sbar_includes_chart_and_discrepancies(cfg):
+    s = Summarizer(cfg, Store(":memory:"), FakeProvider())
+    hand = run(s.summarize("handoff", PATIENT, time.time()))
+    assert hand["sbar"]["chart_observation"] == "Trend shown." and hand["sbar"]["discrepancies"] == []
+
+
+def test_clear_summaries_command(cfg, tmp_path, capsys):
+    from server.store import main
+    db = tmp_path / "bw.db"
+    st = Store(db)
+    run(Summarizer(cfg, st, FakeProvider()).summarize("overnight", PATIENT, time.time()))
+    assert st.cached_summary("p-test", "overnight") is not None
+    st.close()
+    main(["--db", str(db), "--clear-summaries"])
+    assert "deleted 1 cached summaries" in capsys.readouterr().out
+    assert Store(db).cached_summary("p-test", "overnight") is None

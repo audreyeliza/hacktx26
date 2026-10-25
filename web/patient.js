@@ -343,15 +343,25 @@ async function runSummary(kind) {
 }
 
 function renderSummary(summary) {
-  const sbar = summary.sbar ? `
+  // Handoff (SBAR): the four cards plus the chart and discrepancies lines only — the raw text
+  // repeats the same content, so it is not shown. Other summaries show their text.
+  const s = summary.sbar;
+  let body;
+  if (s) {
+    const disc = Array.isArray(s.discrepancies) ? (s.discrepancies.join("; ") || "none") : null;
+    body = `
     <div class="sbar">
       ${["situation", "background", "assessment", "recommendation"].map((key) => `
-        <div><h3>${key}</h3><p>${esc(summary.sbar[key] || "")}</p></div>`).join("")}
-    </div>` : "";
+        <div><h3>${key}</h3><p>${esc(s[key] || "")}</p></div>`).join("")}
+    </div>
+    ${s.chart_observation ? `<p class="summary-text"><strong>Chart:</strong> ${esc(s.chart_observation)}</p>` : ""}
+    ${disc !== null ? `<p class="summary-text"><strong>Chart vs data discrepancies:</strong> ${esc(disc)}</p>` : ""}`;
+  } else {
+    body = `<p class="summary-text">${esc(summary.text || "")}</p>`;
+  }
   $("summary").innerHTML = `
     ${summary.cached ? `<p class="chip">Saved copy — the language model was unreachable</p>` : ""}
-    <p class="summary-text">${esc(summary.text || "")}</p>
-    ${sbar}
+    ${body}
     <p class="model-line">${esc(modelLine(summary))}</p>`;
 }
 

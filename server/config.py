@@ -300,6 +300,11 @@ class DemoCfg:
 
 
 @dataclass(frozen=True)
+class DisplayCfg:
+    timezone: str
+
+
+@dataclass(frozen=True)
 class Config:
     contract: ContractCfg
     network: NetworkCfg
@@ -319,6 +324,7 @@ class Config:
     llm: LLMCfg
     public_demo: PublicDemoCfg
     demo: DemoCfg
+    display: DisplayCfg
 
 
 def _build(cls: type, raw: dict[str, Any], where: str) -> Any:

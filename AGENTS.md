@@ -709,13 +709,18 @@ a tier-3 alert is not acknowledged within 60 s ("charge nurse"). `acknowledged_b
   "patient_id": "p4",
   "alert_id": null,
   "text": "Situation: …",
-  "sbar": {"situation": "…", "background": "…", "assessment": "…", "recommendation": "…"},
+  "sbar": {"situation": "…", "background": "…", "assessment": "…", "recommendation": "…",
+           "chart_observation": "…", "discrepancies": ["…"]},
   "model": "gemini-…",
   "cached": false,
   "created_t": 1792877900.0
 }
 ```
-`kind` ∈ `"explain" | "overnight" | "handoff"`. `sbar` is `null` unless `kind` is `handoff`.
+`kind` ∈ `"explain" | "overnight" | "handoff"`. `sbar` is `null` unless `kind` is `handoff`; for a
+handoff the page shows the four SBAR sections plus `chart_observation` and `discrepancies` (empty list
+= none), and **not** `text` (which repeats the same content, kept for copy/export). All clock times
+in summaries, digests and the chart are in `display.timezone` (America/Chicago), never the
+machine's timezone.
 `cached: true` means the API failed and this is the latest cached response. If the API fails
 and nothing is cached yet, the summary endpoints return `503 {"detail": …}`.
 

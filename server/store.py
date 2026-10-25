@@ -184,6 +184,12 @@ class Store:
             " ORDER BY created_t DESC, id DESC LIMIT 1", (patient_id, kind, key, key)).fetchone()
         return json.loads(row["data"]) if row else None
 
+    def clear_summaries(self) -> int:
+        """Delete every cached LLM summary (e.g. after changing how times are formatted)."""
+        n = self.db.execute("DELETE FROM llm_cache").rowcount
+        self.db.commit()
+        return n
+
     # ---- housekeeping
     def clear_patient(self, patient_id: str) -> None:
         """Delete a patient's runtime history (vitals, events, alerts); keeps the record and
@@ -191,3 +197,21 @@ class Store:
         for table in ("vitals", "events", "alerts"):
             self.db.execute(f"DELETE FROM {table} WHERE patient_id = ?", (patient_id,))
         self.db.commit()
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Maintenance: python -m server.store --clear-summaries [--db data/breathwatch.db]"""
+    import argparse
+    from server.config import load_config
+    ap = argparse.ArgumentParser(description="BreathWatch database maintenance")
+    ap.add_argument("--db", default=None, help="database path (default: store.path in config.yaml)")
+    ap.add_argument("--clear-summaries", action="store_true", help="delete all cached LLM summaries")
+    args = ap.parse_args(argv)
+    store = Store(args.db or load_config().store.path)
+    if args.clear_summaries:
+        print(f"deleted {store.clear_summaries()} cached summaries")
+    store.close()
+
+
+if __name__ == "__main__":
+    main()

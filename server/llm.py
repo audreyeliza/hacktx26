@@ -19,8 +19,10 @@ import logging
 import os
 import time
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
+from zoneinfo import ZoneInfo
 
 import numpy as np
 from pydantic import BaseModel
@@ -44,6 +46,7 @@ values, times, events or history.
 patient and sensor placement, closer observation, ask the responsible clinician to review).
 - Alert tiers were set by fixed rules; explain them, do not change or second-guess them.
 - If the digest says the data is simulated, say so.
+- Times in the digest are local ward time (the digest's "timezone"); quote them as given, never convert.
 - Mention once that BreathWatch is a research prototype.
 - When a chart image is attached: first describe the pattern you see in it, then cross-check it against the digest. \
 If the chart and the digest disagree, report the disagreement; do not resolve it by guessing.
@@ -58,6 +61,9 @@ TASKS = {
                "monitoring or clinician review. Also fill 'chart_observation' (what the chart shows) and "
                "'discrepancies' (chart vs digest; empty list if none). Digest:",
 }
+
+
+SBAR_SECTIONS = ("situation", "background", "assessment", "recommendation")
 
 
 class SBAR(BaseModel):
@@ -206,8 +212,21 @@ def make_provider(cfg: Config) -> Provider:
 
 # --------------------------------------------------------------------------- digest
 
-def _clock(t: float | None) -> str | None:
-    return None if t is None else time.strftime("%H:%M", time.localtime(t))
+def display_tz(cfg: Config) -> ZoneInfo:
+    return ZoneInfo(cfg.display.timezone)
+
+
+def _clock(t: float | None, tz: ZoneInfo) -> str | None:
+    """Local clock time as the UI shows it, e.g. "8:54 PM" (never the machine's timezone)."""
+    if t is None:
+        return None
+    return datetime.fromtimestamp(t, tz).strftime("%I:%M %p").lstrip("0")
+
+
+def _stamp(t: float, tz: ZoneInfo) -> str:
+    """Date, time and zone, e.g. "Sat Oct 24, 8:16 PM CDT"."""
+    d = datetime.fromtimestamp(t, tz)
+    return d.strftime("%a %b ") + str(d.day) + ", " + d.strftime("%I:%M %p %Z").lstrip("0")
 
 
 def _stats(values: list[float]) -> dict[str, Any] | None:
@@ -222,6 +241,8 @@ def build_digest(cfg: Config, store: Store, patient: dict[str, Any], now_t: floa
                  baseline: dict[str, Any] | None = None, alert: dict[str, Any] | None = None) -> dict[str, Any]:
     """Structured summary of stored data for one patient (never raw waveforms)."""
     lc = cfg.llm
+    tz = display_tz(cfg)
+    clock = lambda t: _clock(t, tz)
     pid = patient["id"]
     if kind == "explain" and alert is not None:
         since = alert["raised_t"] - lc.explain_window_s
@@ -245,7 +266,9 @@ def build_digest(cfg: Config, store: Store, patient: dict[str, Any], now_t: floa
                     "notes": (patient.get("notes") or "")[:lc.notes_max_chars]},
         "data_source": ("SIMULATED data (demo scenario)" if dev["kind"] == "simulator"
                         else "live prototype wearable"),
-        "time_range": {"from": _clock(vitals[0]["t"] if vitals else since), "to": _clock(vitals[-1]["t"] if vitals else until),
+        "timezone": f"{cfg.display.timezone} ({datetime.fromtimestamp(until, tz).strftime('%Z')})",
+        "time_range": {"from": _stamp(vitals[0]["t"] if vitals else since, tz),
+                       "to": _stamp(vitals[-1]["t"] if vitals else until, tz),
                        "minutes": round(((vitals[-1]["t"] - vitals[0]["t"]) / 60) if len(vitals) > 1 else 0, 1)},
         "breathing_rate_per_min": {
             **({"stats": _stats(rr)} if rr else {"stats": None}),
@@ -262,18 +285,18 @@ def build_digest(cfg: Config, store: Store, patient: dict[str, Any], now_t: floa
             "count_by_type": dict(Counter(e["type"] for e in events)),
             "count_by_posture": dict(Counter(e["posture"] for e in events)),
             "longest_s": max((e["duration_s"] for e in events), default=None),
-            "recent": [{"type": e["type"], "at": _clock(e["start_t"]), "duration_s": e["duration_s"],
+            "recent": [{"type": e["type"], "at": clock(e["start_t"]), "duration_s": e["duration_s"],
                         "posture": e["posture"]} for e in events[:lc.max_events_listed]],
             "note": "hypopnea is simplified: SpO2 is not measured",
         },
-        "alerts": [{"tier": a["tier"], "kind": a["kind"], "status": a["status"], "at": _clock(a["raised_t"]),
+        "alerts": [{"tier": a["tier"], "kind": a["kind"], "status": a["status"], "at": clock(a["raised_t"]),
                     "reason": a["reason"], "escalated": a["escalated"],
                     "acknowledged_by_role": (a["acknowledged_by"] or {}).get("role")}
                    for a in alerts[:lc.max_alerts_listed]],
     }
     if alert is not None:
         digest["alert_to_explain"] = {"tier": alert["tier"], "kind": alert["kind"], "reason": alert["reason"],
-                                      "status": alert["status"], "at": _clock(alert["raised_t"])}
+                                      "status": alert["status"], "at": clock(alert["raised_t"])}
     return digest
 
 
@@ -285,6 +308,7 @@ EVENT_COLORS = {"obstructive": "#e07b24", "central": "#3b6ea8", "mixed": "#8e5ea
 def render_chart(cfg: Config, store: Store, patient: dict[str, Any], now_t: float,
                  baseline: dict[str, Any] | None = None) -> bytes:
     """Small PNG: breathing-rate trend, baseline, demo thresholds, events and alerts (tier >= 2)."""
+    import matplotlib.dates as mdates
     from matplotlib.figure import Figure   # Figure (not pyplot) is safe off the main thread
 
     pid = patient["id"]
@@ -292,8 +316,9 @@ def render_chart(cfg: Config, store: Store, patient: dict[str, Any], now_t: floa
     vitals = store.vitals(pid, since, limit=100000)
     events = store.events(pid, since, limit=1000)
     alerts = [a for a in store.alerts(pid, "all", since, limit=1000) if a["tier"] >= 2]
+    tz = display_tz(cfg)
     t0 = vitals[0]["t"] if vitals else now_t
-    to_min = lambda t: (t - t0) / 60.0
+    to_min = lambda t: mdates.date2num(datetime.fromtimestamp(t, tz))   # x = local clock time
 
     fig = Figure(figsize=(7.0, 2.8), dpi=110)
     ax = fig.add_subplot(1, 1, 1)
@@ -314,9 +339,11 @@ def render_chart(cfg: Config, store: Store, patient: dict[str, Any], now_t: floa
                 markersize=7, linestyle="none")
     finite = [y for y in ys if np.isfinite(y)]
     ax.set_ylim(0, max(25.0, max(finite) + 3) if finite else 25.0)
-    ax.set_xlabel(f"minutes since {_clock(t0)} (triangles: alerts tier 2-3)")
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%-I:%M %p", tz=tz))
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator(tz=tz, minticks=3, maxticks=7))
+    ax.set_xlabel(f"local time, {datetime.fromtimestamp(t0, tz).strftime('%Z')} (triangles: alerts tier 2-3)")
     ax.set_ylabel("breaths/min")
-    ax.set_title(f"Bed {patient['bed']} — breathing rate (BreathWatch prototype)", fontsize=10)
+    ax.set_title(f"Bed {patient['bed']} — breathing rate, {_stamp(t0, tz)} (BreathWatch prototype)", fontsize=9)
     ax.legend(fontsize=7, loc="upper right", ncol=3)
     ax.grid(alpha=0.25)
     fig.tight_layout()
@@ -362,7 +389,9 @@ class Summarizer:
         sbar = None
         if kind == "handoff":
             data = SBAR.model_validate_json(_strip_fences(text))   # ValueError on a malformed reply
-            sbar = {k: getattr(data, k) for k in ("situation", "background", "assessment", "recommendation")}
+            sbar = {k: getattr(data, k) for k in SBAR_SECTIONS}
+            sbar["chart_observation"] = data.chart_observation
+            sbar["discrepancies"] = list(data.discrepancies)
             disc = "; ".join(data.discrepancies) or "none"
             text = (f"Situation: {data.situation}\nBackground: {data.background}\nAssessment: {data.assessment}\n"
                     f"Recommendation: {data.recommendation}\nChart: {data.chart_observation}\n"
