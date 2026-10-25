@@ -363,7 +363,8 @@ def test_backfill_gives_seeded_beds_rates_at_start(test_cfg):
 
 
 
-SHIFT = {"name", "label", "start_t", "end_t", "since_t", "hours", "smart", "naive", "patients"}
+SHIFT = {"name", "label", "start_t", "end_t", "since_t", "hours", "rates_available", "smart", "naive",
+         "patients"}
 
 
 def test_ward_listing_has_shift_alarm_counts(client):
@@ -386,8 +387,22 @@ def test_ward_listing_has_shift_alarm_counts(client):
     assert shift["smart"]["alarms"] == sum(r["shift_alarms"]["smart"] for r in body["patients"]) >= 1
     assert shift["naive"]["alarms"] == sum(r["shift_alarms"]["naive"] for r in body["patients"]) >= 3
     assert shift["patients"] == 6
-    hours = max(shift["hours"], client.app_state.cfg.display.min_rate_hours)
-    assert shift["naive"]["per_hour"] == pytest.approx(shift["naive"]["alarms"] / hours, abs=0.1)
+    # counting began seconds ago: counts only, no per-hour rates yet
+    assert shift["rates_available"] is False and shift["smart"]["per_hour"] is None and shift["naive"]["per_hour"] is None
+
+
+def test_shift_rates_only_after_30_minutes(cfg):
+    from server.patients import shift_totals
+    shift = {"name": "Night", "label": "Night shift", "start_t": 0.0, "end_t": 43200.0}
+    rows = [{"shift_alarms": {"smart": 7, "naive": 23}}, {"shift_alarms": {"smart": 0, "naive": 5}}]
+    early = shift_totals(cfg, shift, rows, [0.0], now=29 * 60)
+    assert early["smart"] == {"alarms": 7, "per_hour": None} and early["naive"] == {"alarms": 28, "per_hour": None}
+    assert early["rates_available"] is False
+    later = shift_totals(cfg, shift, rows, [0.0], now=2 * 3600)
+    assert later["rates_available"] is True and later["hours"] == 2.0
+    assert later["smart"] == {"alarms": 7, "per_hour": 3.5} and later["naive"] == {"alarms": 28, "per_hour": 14.0}
+    mid_shift_start = shift_totals(cfg, shift, rows, [3 * 3600.0], now=3 * 3600 + 600)   # restart mid-shift
+    assert mid_shift_start["since_t"] == 3 * 3600 and mid_shift_start["rates_available"] is False
 
 
 def test_alarms_before_the_shift_do_not_count(client):

@@ -97,6 +97,21 @@ def shift_window(cfg: Config, now_t: float) -> dict[str, Any]:
             "start_t": start.timestamp(), "end_t": end.timestamp()}
 
 
+def shift_totals(cfg: Config, shift: dict[str, Any], rows: list[dict[str, Any]], starts: list[float],
+                 now: float) -> dict[str, Any]:
+    """Ward-wide smart vs naive alarms this shift (ShiftSummary, AGENTS.md §19.3). Counts always;
+    per-hour rates only once counting covers display.rates_after_hours (30 min), else null."""
+    since = max(shift["start_t"], min(starts)) if starts else shift["start_t"]
+    hours = max(0.0, (now - since) / 3600.0)
+    ready = hours >= cfg.display.rates_after_hours
+    total = {k: sum(r["shift_alarms"][k] for r in rows) for k in ("smart", "naive")}
+    rate = lambda n: round(n / hours, 1) if ready else None
+    return {**shift, "since_t": since, "hours": round(hours, 2), "rates_available": ready,
+            "smart": {"alarms": total["smart"], "per_hour": rate(total["smart"])},
+            "naive": {"alarms": total["naive"], "per_hour": rate(total["naive"])},
+            "patients": len(rows)}
+
+
 def bed_key(bed: str) -> tuple[int, str]:
     m = re.match(r"(\d+)(.*)", bed)
     return (int(m.group(1)), m.group(2)) if m else (10**9, bed)
@@ -529,16 +544,10 @@ class Ward:
                 "generated_t": now}
 
     def _shift_totals(self, shift: dict[str, Any], rows: list[dict[str, Any]], now: float) -> dict[str, Any]:
-        """Ward-wide smart vs naive alarms this shift (admitted patients in this listing)."""
         starts = [rt.pipeline.alerts.start_t for r in rows if (rt := self.runtimes.get(r["id"]))
                   and rt.pipeline.alerts.start_t is not None]
-        since = max(shift["start_t"], min(starts)) if starts else shift["start_t"]
-        hours = max((now - since) / 3600.0, self.cfg.display.min_rate_hours)
-        total = {k: sum(r["shift_alarms"][k] for r in rows) for k in ("smart", "naive")}
-        return {**shift, "since_t": since, "hours": round((now - since) / 3600.0, 2),
-                "smart": {"alarms": total["smart"], "per_hour": round(total["smart"] / hours, 1)},
-                "naive": {"alarms": total["naive"], "per_hour": round(total["naive"] / hours, 1)},
-                "patients": sum(1 for r in rows if r["id"] in self.runtimes)}
+        admitted = [r for r in rows if r["id"] in self.runtimes]
+        return shift_totals(self.cfg, shift, admitted, starts, now)
 
     def process_all(self) -> None:
         for rt in list(self.runtimes.values()):

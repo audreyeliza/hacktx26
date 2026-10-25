@@ -699,6 +699,7 @@ fixed-threshold monitor (§8) on the same data. `tier` is the highest tier among
   "end_t": 1792929600.0,
   "since_t": 1792886400.0,
   "hours": 2.35,
+  "rates_available": true,
   "smart": {"alarms": 7, "per_hour": 3.0},
   "naive": {"alarms": 64, "per_hour": 27.2},
   "patients": 6
@@ -707,8 +708,9 @@ fixed-threshold monitor (§8) on the same data. `tier` is the highest tier among
 Shifts change at `display.shift_change_hours` (7 AM and 7 PM) in `display.timezone`
 (America/Chicago; daylight-saving shifts are 11 or 13 h). Totals are the sums of the admitted
 patients' `shift_alarms`. `since_t` = the later of the shift start and when monitoring began (e.g.
-a server start or demo reset mid-shift); `hours` = hours since `since_t`; `per_hour` divides by at
-least `display.min_rate_hours` (0.25 h) so the first minutes do not show silly rates.
+a server start or demo reset mid-shift); `hours` = hours since `since_t`. **`per_hour` is `null` and
+`rates_available` is `false` until counting covers 30 min** (`display.rates_after_hours`); the ward
+header shows counts only ("7 vs 23 this shift") until then, and may add the rates afterwards.
 
 **PatientState** (patient detail page)
 ```json

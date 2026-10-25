@@ -9,6 +9,9 @@
 > - Each PatientSummary has **`shift_alarms: {"smart": n, "naive": n}`** for per-bed counts.
 > - Shifts change at 7 AM / 7 PM America/Chicago (`display.shift_change_hours`). Counts restart
 >   with a server restart or demo reset (`since_t` tells you when counting began).
+> - **Header text:** show the counts, e.g. "7 vs 23 this shift" (`shift.smart.alarms` vs
+>   `shift.naive.alarms`). **Per-hour rates only once `shift.rates_available` is true** (counting
+>   covers ≥ 30 min); before that `smart.per_hour` / `naive.per_hour` are `null` — show counts alone.
 > - The mock (`web/mock.js`) does not have these fields yet.
 > - Also live already: handoff `sbar` has `chart_observation` + `discrepancies`; all summary and
 >   chart times are America/Chicago.
