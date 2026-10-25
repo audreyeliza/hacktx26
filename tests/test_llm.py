@@ -42,6 +42,7 @@ def test_digest_is_structured_and_small(cfg, demo_store):
     raw = json.dumps(d)
     assert len(raw) < 12_000
     assert "Jordan" not in raw and "Avery" not in raw                 # bed number only
+    assert d["product"].startswith("Respiro")
     assert d["data_source"].startswith("SIMULATED")
     assert d["patient"]["risk_factors"]["osa"] == "suspected"         # LLM context only
     assert d["events"]["count_by_type"]["obstructive"] == 3 and d["events"]["count_by_type"]["central"] == 2
@@ -73,7 +74,7 @@ def test_chart_png(cfg, demo_store):
 
 
 def test_system_prompt_rules():
-    for phrase in ("Use only the data provided", "No diagnoses", "No medication, dosing",
+    for phrase in ("Respiro", "Use only the data provided", "No diagnoses", "No medication, dosing",
                    "monitoring and clinician-review", "research prototype", "disagree"):
         assert phrase in SYSTEM_PROMPT
 

@@ -297,7 +297,7 @@ def create_app(cfg: Config | None = None, source: str | None = None) -> FastAPI:
         await state.ward.stop()
         state.store.close()
 
-    app = FastAPI(title="BreathWatch", lifespan=lifespan)
+    app = FastAPI(title="Respiro", lifespan=lifespan)
     app.mount("/static", StaticFiles(directory=WEB), name="static")
 
     @app.middleware("http")

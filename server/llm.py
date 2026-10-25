@@ -35,7 +35,7 @@ log = logging.getLogger(__name__)
 KINDS = ("explain", "overnight", "handoff")
 
 SYSTEM_PROMPT = """You write short clinical summaries for nurses on a general hospital ward, from data produced by \
-BreathWatch, a research prototype breathing monitor (not a medical device; its thresholds are demonstration values).
+Respiro, a research prototype breathing monitor (not a medical device; its thresholds are demonstration values).
 
 Rules:
 - Use only the data provided: the JSON digest and, when attached, the breathing-rate chart image. Do not invent \
@@ -47,7 +47,7 @@ patient and sensor placement, closer observation, ask the responsible clinician 
 - Alert tiers were set by fixed rules; explain them, do not change or second-guess them.
 - If the digest says the data is simulated, say so.
 - Times in the digest are local ward time (the digest's "timezone"); quote them as given, never convert.
-- Mention once that BreathWatch is a research prototype.
+- Mention once that Respiro is a research prototype.
 - When a chart image is attached: first describe the pattern you see in it, then cross-check it against the digest. \
 If the chart and the digest disagree, report the disagreement; do not resolve it by guessing.
 - Plain language, short sentences, no markdown tables."""
@@ -262,6 +262,7 @@ def build_digest(cfg: Config, store: Store, patient: dict[str, Any], now_t: floa
     alerts = [a for a in store.alerts(pid, "all", since, limit=1000) if a["tier"] >= 1 and a["raised_t"] <= until]
     dev = patient["device"]
     digest: dict[str, Any] = {
+        "product": "Respiro, a research prototype (not a medical device; demonstration thresholds)",
         "patient": {"bed": patient["bed"], "risk_factors": patient["risk_factors"],
                     "notes": (patient.get("notes") or "")[:lc.notes_max_chars]},
         "data_source": ("SIMULATED data (demo scenario)" if dev["kind"] == "simulator"
@@ -355,7 +356,7 @@ def render_chart(cfg: Config, store: Store, patient: dict[str, Any], now_t: floa
     time_axis(ax, t0, now_t, tz)
     ax.set_xlabel(f"local time, {datetime.fromtimestamp(t0, tz).strftime('%Z')} (triangles: alerts tier 2-3)")
     ax.set_ylabel("breaths/min")
-    ax.set_title(f"Bed {patient['bed']} — breathing rate, {_stamp(t0, tz)} (BreathWatch prototype)", fontsize=9)
+    ax.set_title(f"Bed {patient['bed']} — breathing rate, {_stamp(t0, tz)} (Respiro prototype)", fontsize=9)
     ax.legend(fontsize=7, loc="upper right", ncol=3)
     ax.grid(alpha=0.25)
     fig.tight_layout()

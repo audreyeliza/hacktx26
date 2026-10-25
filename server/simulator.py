@@ -1,4 +1,4 @@
-"""Synthetic BreathWatch sensor data in the exact section 4 packet format.
+"""Synthetic Respiro sensor data in the exact section 4 packet format.
 
 Usage:
     python -m server.simulator --scenario normal --udp            # real-time UDP to 127.0.0.1:5005
@@ -423,7 +423,7 @@ def _run_cli(args: argparse.Namespace, cfg: Config) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     cfg = load_config()
-    p = argparse.ArgumentParser(description="BreathWatch sensor simulator")
+    p = argparse.ArgumentParser(description="Respiro sensor simulator")
     p.add_argument("--scenario", default="normal", choices=SCENARIO_NAMES)
     p.add_argument("--udp", action="store_true", help="send packets over UDP")
     p.add_argument("--host", default="127.0.0.1")

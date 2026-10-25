@@ -203,7 +203,7 @@ def main(argv: list[str] | None = None) -> None:
     """Maintenance: python -m server.store --clear-summaries [--db data/breathwatch.db]"""
     import argparse
     from server.config import load_config
-    ap = argparse.ArgumentParser(description="BreathWatch database maintenance")
+    ap = argparse.ArgumentParser(description="Respiro database maintenance")
     ap.add_argument("--db", default=None, help="database path (default: store.path in config.yaml)")
     ap.add_argument("--clear-summaries", action="store_true", help="delete all cached LLM summaries")
     args = ap.parse_args(argv)

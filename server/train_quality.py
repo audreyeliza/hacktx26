@@ -243,7 +243,7 @@ def simulate_sessions(cfg: Config, out_dir: Path, n: int = 2) -> Path:
 def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
     cfg = load_config()
-    ap = argparse.ArgumentParser(description="Train the BreathWatch signal-quality model (v1).")
+    ap = argparse.ArgumentParser(description="Train the Respiro signal-quality model (v1).")
     ap.add_argument("--dir", default=cfg.train.recordings_dir, help="recordings folder (searched recursively)")
     ap.add_argument("--out", default=cfg.quality.model_path)
     ap.add_argument("--simulate", action="store_true", help="train on simulator-made recordings (no hardware)")
