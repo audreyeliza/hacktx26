@@ -14,10 +14,10 @@
   <main class="wrap" id="main">
     <p class="crumbs"><a href="/">Ward</a></p>
     <p class="notice" id="missing" hidden>No patient with this id. <a href="/">Back to the ward</a></p>
-    <div id="detail-root">
+    <div class="patient-stack" id="detail-root">
       <header class="patient-head">
         <div>
-          <p class="eyebrow" id="pt-bed">Bed</p>
+          <p class="bed-kicker" id="pt-bed">Bed</p>
           <h1 id="pt-name">Loading…</h1>
           <p class="fine" id="pt-assign"></p>
         </div>
@@ -25,58 +25,42 @@
       </header>
       <p class="reason" id="pt-reason"></p>
       <p class="notice" id="pt-status" hidden></p>
+      <section class="vital-strip" id="tile" data-tier="0" aria-label="Vitals">
+        <dl class="vitals">
+          <div class="vital"><dt>Breathing</dt><dd><span id="rr">—</span> <small id="rr-unit">/min</small></dd></div>
+          <div class="vital"><dt>Heart</dt><dd><span id="hr">—</span> <small>bpm</small></dd></div>
+          <div class="vital"><dt>Position</dt><dd id="posture">—</dd></div>
+          <div class="vital"><dt>Signal</dt><dd id="quality">—</dd></div>
+        </dl>
+      </section>
+      <details class="fold" id="signal-details">
+        <summary>Signal details</summary>
+        <p class="fine" id="rr-detail"></p>
+        <p class="fine" id="link-note"></p>
+      </details>
+      <div class="calibrate" id="calibrate" hidden>
+        <button type="button" class="quiet" id="cal-btn">Calibrate supine</button>
+        <p class="fine" id="cal-note">Lie flat for a few seconds. Posture is then measured from that position.</p>
+        <p class="notice" id="cal-error" hidden></p>
+      </div>
       <div class="risk" id="pt-risk"></div>
-      <div class="detail">
-        <section class="panel tile" id="tile" data-tier="0" aria-label="Vitals">
-          <dl class="vitals">
-            <div class="vital"><dt>Resp. rate</dt><dd><span id="rr">—</span> <small>/min</small></dd></div>
-            <div class="vital"><dt>Heart rate</dt><dd><span id="hr">—</span> <small>bpm</small></dd></div>
-            <div class="vital"><dt>Posture</dt><dd id="posture">—</dd></div>
-            <div class="vital"><dt>Signal</dt><dd><span class="badge" id="quality">—</span></dd></div>
-          </dl>
-          <p class="fine" id="rr-detail"></p>
-          <div class="calibrate" id="calibrate" hidden>
-            <button type="button" class="quiet" id="cal-btn">Calibrate supine</button>
-            <p class="fine" id="cal-note">Lie flat for a few seconds. Posture is then measured from that position.</p>
-            <p class="notice" id="cal-error" hidden></p>
-          </div>
-        </section>
-        <section class="panel" aria-label="Alerts">
-          <h2>Alerts</h2>
-          <div id="alerts"></div>
-        </section>
-        <section class="panel span" aria-label="Live waveforms">
-          <h2>Live waveforms <small>last 30 seconds</small></h2>
-          <p class="link-note" id="link-note" hidden>No signal from the wearable.</p>
-          <div class="wave"><span class="wave__label">Effort (belt)</span><div class="wave__plot"><canvas id="wave-effort"></canvas></div></div>
-          <div class="wave"><span class="wave__label">Airflow</span><div class="wave__plot"><canvas id="wave-airflow"></canvas></div></div>
-          <div class="wave"><span class="wave__label">Pulse</span><div class="wave__plot"><canvas id="wave-pulse"></canvas></div></div>
-        </section>
-        <section class="panel span" aria-label="Breathing-rate trend">
-          <h2>Breathing rate <small>last 60 minutes</small></h2>
-          <p class="fine" id="baseline-note"></p>
-          <div class="trend"><canvas id="trend"></canvas></div>
-        </section>
+      <section class="panel" aria-label="Alerts">
+        <h2>Alerts</h2>
+        <div id="alerts"></div>
+      </section>
+      <div class="clinical-row">
         <section class="panel" aria-label="Events">
           <h2>Events</h2>
           <p class="fine">Hypopnea here is simplified: oxygen saturation is not measured.</p>
-          <ol class="events" id="events"></ol>
+          <div id="events"></div>
         </section>
-        <section class="panel" aria-label="Alarm comparison">
-          <h2>Smart vs naive</h2>
-          <div class="compare">
-            <div><p class="eyebrow">Smart</p><p class="big" id="m-smart">—</p><p class="fine" id="m-smart-rate"></p></div>
-            <div><p class="eyebrow">Naive</p><p class="big" id="m-naive">—</p><p class="fine" id="m-naive-rate"></p></div>
-          </div>
-          <p class="fine" id="m-since">The naive monitor uses fixed thresholds and does not check signal quality.</p>
-        </section>
-        <section class="panel span" aria-label="Clinical note">
+        <section class="panel" id="note-panel" aria-label="Clinical note">
           <h2>Clinical note</h2>
           <p class="fine">Written from monitor output the rules already produced. The language model does not decide alarms.</p>
           <div class="ai-actions">
             <button type="button" class="quiet" id="sum-explain">Explain latest alert</button>
             <button type="button" class="quiet" id="sum-overnight">Overnight summary</button>
-            <button type="button" class="quiet" id="sum-handoff">Handoff note (SBAR)</button>
+            <button type="button" class="quiet" id="sum-handoff">Handoff note</button>
           </div>
           <p class="fine" id="ai-status"></p>
           <p class="notice" id="ai-error" hidden></p>
@@ -84,15 +68,26 @@
           <img id="chart-img" class="chart-img" alt="Breathing-rate trend sent with the summary" hidden>
           <p class="gemini">Powered by Gemini</p>
         </section>
-        <section class="panel span" id="admission">
-          <h2>Admission</h2>
-          <p id="pt-notes"></p>
-          <p class="notice" id="role-note" hidden>This demo role can review and acknowledge. A nurse or admin changes the admission.</p>
-          <details id="edit"><summary>Edit admission</summary><form id="edit-form"></form></details>
-          <div id="discharge-box"></div>
-          <p class="notice" id="edit-error" hidden></p>
-        </section>
       </div>
+      <section class="panel" aria-label="Live waveforms">
+        <h2>Live waveforms <small>last 30 seconds</small></h2>
+        <div class="wave"><span class="wave__label">Effort</span><div class="wave__plot"><canvas id="wave-effort"></canvas></div></div>
+        <div class="wave"><span class="wave__label">Airflow</span><div class="wave__plot"><canvas id="wave-airflow"></canvas></div></div>
+        <div class="wave"><span class="wave__label">Pulse</span><div class="wave__plot"><canvas id="wave-pulse"></canvas></div></div>
+      </section>
+      <section class="panel" aria-label="Breathing-rate trend">
+        <h2>Breathing rate <small>last 60 minutes</small></h2>
+        <p class="fine" id="baseline-note"></p>
+        <div class="trend"><canvas id="trend"></canvas></div>
+      </section>
+      <details class="fold" id="admission">
+        <summary>Admission</summary>
+        <p id="pt-notes"></p>
+        <p class="notice" id="role-note" hidden>This demo role can review and acknowledge. A nurse or admin changes the admission.</p>
+        <details id="edit"><summary>Edit admission</summary><form id="edit-form"></form></details>
+        <div id="discharge-box"></div>
+        <p class="notice" id="edit-error" hidden></p>
+      </details>
     </div>
   </main>
   <footer class="footer">Research prototype — not a medical device. Thresholds are for demonstration.</footer>

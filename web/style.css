@@ -310,7 +310,7 @@ h2 { font-size: 1.25rem; margin: 0 0 10px; }
 .alert[data-tier="2"] .pill { color: var(--orange); }
 .alert[data-tier="1"] .pill { color: var(--gold); }
 .alert[data-tier="0"] .pill { color: var(--sage); }
-.pill { font-weight: 700; font-size: 0.82rem; letter-spacing: 0.04em; text-transform: uppercase; }
+.pill { font-weight: 700; font-size: 0.82rem; letter-spacing: 0; text-transform: none; }
 .escalated { color: var(--red); font-weight: 600; margin: 4px 0; }
 .ack { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .ack input { flex: 1; min-width: 12rem; }
@@ -322,8 +322,8 @@ h2 { font-size: 1.25rem; margin: 0 0 10px; }
 .summary-text { font-family: var(--serif); font-size: 1.08rem; line-height: 1.45; white-space: pre-wrap; max-width: 68ch; }
 .sbar { display: grid; gap: 8px; margin-top: 10px; }
 .sbar div { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
-.sbar h3 { margin: 0 0 4px; font-family: var(--sans); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
-.gemini { margin: 8px 0 0; font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.sbar h3 { margin: 0 0 4px; font-family: var(--display); font-size: 0.95rem; font-weight: 600; letter-spacing: 0; text-transform: capitalize; color: var(--ink); }
+.gemini { margin: 8px 0 0; font-size: 0.75rem; color: var(--ink-2); }
 .model-line { margin: 8px 0 0; color: var(--ink-soft); font-size: 0.92rem; }
 .calibrate { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
 .public-demo-banner {
@@ -427,4 +427,51 @@ body.login.has-public-demo .login-card { margin: auto; }
   .session { margin-left: 0; }
   .patient-head { align-items: start; }
   .wave__plot { height: 72px; }
+  .vital-strip .vitals { grid-template-columns: 1fr 1fr; }
+  .clinical-row { grid-template-columns: 1fr; }
 }
+
+.patient-stack { display: flex; flex-direction: column; gap: 16px; }
+body[data-role="physician"] #note-panel { order: -1; }
+.bed-kicker { margin: 0; color: var(--ink-2); font-size: 0.9rem; }
+.vital-strip {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+}
+.vital-strip .vitals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px 16px; margin: 0; }
+.vital-strip .vital dd { font-family: var(--display); font-size: 1.7rem; font-weight: 600; margin: 0; line-height: 1.1; }
+.vital-strip .vital dt { color: var(--ink-2); font-size: 0.84rem; }
+.fold {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+}
+.fold > summary { cursor: pointer; font-weight: 600; }
+.clinical-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+.alert {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px 12px 20px;
+  border-top: 1px solid var(--line);
+  border-left: 4px solid var(--line);
+}
+.alert[data-tier="1"] { border-left-color: var(--tier-1); }
+.alert[data-tier="2"] { border-left-color: var(--tier-2); }
+.alert[data-tier="3"] { border-left-color: var(--tier-3); }
+.alert[data-status="awaiting_ack"] { color: var(--ink-2); }
+.alert__reason { flex: 1; min-width: 0; }
+.alert .ack { margin-left: auto; display: flex; gap: 8px; align-items: center; flex: 0 0 auto; }
+.alert .ack input { width: 12rem; }
+.alert-group { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 12px 0 0; }
+.alert-group h3, h3.alert-group { margin: 12px 0 0; font-size: 0.95rem; }
+.esc-tag { color: var(--tier-3); font-size: 0.78rem; font-weight: 600; white-space: nowrap; }
+.history { margin-top: 12px; }
+.event-table { width: 100%; border-collapse: collapse; }
+.event-table th { text-align: left; color: var(--ink-2); font-size: 0.84rem; font-weight: 600; padding: 4px 8px 4px 0; }
+.event-table td { padding: 8px 8px 8px 0; border-top: 1px solid var(--line); }
+.event-table th:nth-child(2), .event-table td:nth-child(2),
+.event-table th:nth-child(4), .event-table td:nth-child(4) { text-align: right; }

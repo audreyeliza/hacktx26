@@ -1,7 +1,7 @@
 import {
   $, admissionFields, api, boot, canEdit, esc, eventLabel, fmt, fmtTime, fmtWhen,
-  liveSocket, patientIdFromLocation, postureLabel, PRODUCT_NAME, qualityLabel, readAdmission, riskHtml,
-  scenarioLabel, showError, tierName, USE_MOCK,
+  liveSocket, patientIdFromLocation, postureLabel, PRODUCT_NAME, readAdmission, riskHtml,
+  showError, tierName, USE_MOCK,
 } from "/static/common.js";
 
 const id = patientIdFromLocation();
@@ -24,7 +24,7 @@ function waveChart(canvasId, color) {
       plugins: { legend: { display: false }, tooltip: { enabled: false } },
       scales: {
         x: { type: "linear", ticks: { display: false }, grid: { display: false }, border: { display: false } },
-        y: { ticks: { maxTicksLimit: 3, font: { size: 10 } }, grid: { color: "rgba(28,36,33,0.06)" } },
+        y: { ticks: { display: false }, grid: { display: false }, border: { display: false } },
       },
     },
   });
@@ -39,11 +39,30 @@ let windowS = 30;
 let trendWindowS = 3600;
 let trendPoints = [];
 let baselineRr = null;
+let chartBands = [];
+const eventBandPlugin = {
+  id: "eventBands",
+  beforeDatasetsDraw(chart) {
+    const area = chart.chartArea;
+    const scale = chart.scales.x;
+    if (!area || !scale || !chartBands.length) return;
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.fillStyle = "rgba(67, 76, 156, 0.14)";
+    for (const band of chartBands) {
+      const left = Math.max(area.left, Math.min(scale.getPixelForValue(band.x0), scale.getPixelForValue(band.x1)));
+      const right = Math.min(area.right, Math.max(scale.getPixelForValue(band.x0), scale.getPixelForValue(band.x1)));
+      if (right > left) ctx.fillRect(left, area.top, right - left, area.bottom - area.top);
+    }
+    ctx.restore();
+  },
+};
 const trend = new Chart($("trend"), {
   type: "line",
+  plugins: [eventBandPlugin],
   data: { datasets: [
-    { label: "Breathing rate", data: [], borderColor: cssVar("--teal"), borderWidth: 1.6, pointRadius: 0, spanGaps: false },
-    { label: "Baseline", data: [], borderColor: cssVar("--muted"), borderDash: [4, 4], borderWidth: 1, pointRadius: 0 },
+    { label: "Breathing rate", data: [], borderColor: cssVar("--brand"), borderWidth: 1.6, pointRadius: 0, spanGaps: false },
+    { label: "Baseline", data: [], borderColor: cssVar("--ink-2"), borderDash: [4, 4], borderWidth: 1, pointRadius: 0 },
   ] },
   options: {
     animation: false, responsive: true, maintainAspectRatio: false, parsing: false,
@@ -81,7 +100,7 @@ function onWave(msg) {
     chart.options.scales.x.max = tEnd;
     chart.update("none");
   }
-  if (any) $("link-note").hidden = true;
+  if (any && lastDevice && lastDevice.kind === "live" && lastDevice.link_ok) $("link-note").textContent = "";
 }
 
 function drawTrend() {
@@ -89,6 +108,7 @@ function drawTrend() {
   const base = trend.data.datasets[1].data;
   line.length = 0;
   base.length = 0;
+  chartBands = [];
   if (trendPoints.length) {
     const tLast = trendPoints[trendPoints.length - 1][0];
     trendPoints = trendPoints.filter(([t]) => t >= tLast - trendWindowS);
@@ -96,6 +116,11 @@ function drawTrend() {
     if (baselineRr !== null && trendPoints.length) {
       const x0 = (trendPoints[0][0] - tLast) / 60;
       base.push({ x: x0, y: baselineRr }, { x: 0, y: baselineRr });
+    }
+    const t0 = tLast - trendWindowS;
+    for (const ev of allEvents) {
+      if (ev.end_t < t0 || ev.start_t > tLast) continue;
+      chartBands.push({ x0: (ev.start_t - tLast) / 60, x1: (ev.end_t - tLast) / 60 });
     }
   }
   trend.update("none");
@@ -106,6 +131,10 @@ let alertSig = "";
 let currentTier = 0;
 let discharged = false;
 let editBuilt = false;
+let lastDevice = null;
+let lastVitals;
+let allEvents = [];
+let eventsExpanded = false;
 
 async function openPatient(patientId, currentUser) {
   let state;
@@ -115,13 +144,16 @@ async function openPatient(patientId, currentUser) {
     if (err.status === 404) { missing(); return; }
     throw err;
   }
-  const [alerts, events] = await Promise.all([
+  const [alerts, history, events] = await Promise.all([
     api(`/api/patients/${patientId}/alerts`, { query: { status: "unacked" } }),
+    api(`/api/patients/${patientId}/alerts`, { query: { status: "all", limit: 40 } }),
     api(`/api/patients/${patientId}/events`),
   ]);
   applyState(state);
-  setAlerts(alerts.alerts);
+  setAlerts(alerts.alerts, (history.alerts || []).filter((a) => a.status === "acknowledged"));
   setEvents(events.events);
+  if (currentUser.role === "admin") $("signal-details").open = true;
+  if (currentUser.role === "physician") document.querySelector(".patient-head").after($("note-panel"));
   if (!editBuilt) {
     editBuilt = true;
     await buildAdmission(state.patient, currentUser);
@@ -131,6 +163,12 @@ async function openPatient(patientId, currentUser) {
   $("sum-overnight").addEventListener("click", () => runSummary("overnight"));
   $("sum-handoff").addEventListener("click", () => runSummary("handoff"));
   $("alerts").addEventListener("submit", onAck);
+  $("alerts").addEventListener("click", onAlertClick);
+  $("events").addEventListener("click", (ev) => {
+    if (!ev.target.closest("[data-events-more]")) return;
+    eventsExpanded = !eventsExpanded;
+    renderEvents();
+  });
 
   liveSocket(`/ws/patients/${encodeURIComponent(patientId)}`, {
     onMessage(msg) { onSocket(msg, patientId); },
@@ -169,13 +207,14 @@ function onSocket(msg, patientId) {
 }
 
 async function refreshClinical(patientId) {
-  const [state, alerts, events] = await Promise.all([
+  const [state, alerts, history, events] = await Promise.all([
     api(`/api/patients/${patientId}/state`),
     api(`/api/patients/${patientId}/alerts`, { query: { status: "unacked" } }),
+    api(`/api/patients/${patientId}/alerts`, { query: { status: "all", limit: 40 } }),
     api(`/api/patients/${patientId}/events`),
   ]);
   applyState(state);
-  setAlerts(alerts.alerts);
+  setAlerts(alerts.alerts, (history.alerts || []).filter((a) => a.status === "acknowledged"));
   setEvents(events.events);
 }
 
@@ -199,12 +238,16 @@ function applyState(state) {
 
 function applyDevice(device) {
   if (!device) return;
-  const label = device.kind === "live"
-    ? `Live · ${device.device_id} · ${device.link_ok ? "link up" : "link lost"}`
-    : `Simulated · ${scenarioLabel(device.scenario)}`;
-  $("pt-assign").textContent = `${label}. ${device.source_status || ""}`;
-  $("link-note").hidden = !(device.kind === "live" && !device.link_ok);
+  lastDevice = device;
+  if (device.kind === "live") {
+    $("pt-assign").textContent = device.link_ok ? "Live sensor" : "Live sensor, not connected";
+    $("link-note").textContent = device.link_ok ? "" : "No signal from the wearable.";
+  } else {
+    $("pt-assign").textContent = "Simulated";
+    $("link-note").textContent = "";
+  }
   $("calibrate").hidden = device.kind !== "live";
+  if (lastVitals !== undefined) applyVitals(lastVitals);
 }
 
 function setTier(tier, reason) {
@@ -217,80 +260,147 @@ function setTier(tier, reason) {
   if (reason !== undefined) $("pt-reason").textContent = text || (tier === 0 ? "No active alert." : "");
 }
 
+function signalWord(v) {
+  if (!v || v.quality == null || v.quality === "unknown" || (v.flags || []).includes("warming_up")) return "Starting up";
+  if (v.quality === "sensor_off") return "Sensor off";
+  if (v.quality === "motion" || (v.rr_conf != null && v.rr_conf < 0.6)) return "Low confidence";
+  return "Good";
+}
+
 function applyVitals(v) {
-  if (!v) {
-    $("rr").textContent = "—";
-    $("hr").textContent = "—";
-    $("posture").textContent = "—";
-    $("quality").textContent = "—";
-    $("rr-detail").textContent = "Waiting for a reading.";
+  lastVitals = v;
+  const linkLost = lastDevice && lastDevice.kind === "live" && lastDevice.link_ok === false;
+  const unit = $("rr-unit");
+  if (!v || v.rr_fused == null) {
+    const off = linkLost || (v && v.quality === "sensor_off");
+    $("rr").textContent = off ? "No reading" : "Starting up";
+    $("rr").className = "rate-note";
+    unit.hidden = true;
+    $("hr").textContent = v && v.hr != null ? fmt(v.hr, 0) : "—";
+    $("posture").textContent = v ? postureLabel(v.posture) : "—";
+    $("quality").textContent = off ? "Sensor off" : "Starting up";
+    $("rr-detail").textContent = off
+      ? "No reading — check sensor."
+      : "Starting up — first reading in about 15 s.";
     return;
   }
-  $("rr").textContent = fmt(v.rr_fused, 1);
+  $("rr").textContent = fmt(v.rr_fused, 0);
+  $("rr").className = "";
+  unit.hidden = false;
   $("hr").textContent = fmt(v.hr, 0);
   $("posture").textContent = postureLabel(v.posture);
-  const q = $("quality");
-  q.textContent = qualityLabel(v.quality);
-  q.className = `badge q-${v.quality || "unknown"}`;
+  $("quality").textContent = signalWord(v);
   const parts = [];
-  if (v.rr_conf != null) parts.push(`confidence ${fmt(v.rr_conf, 2)}`);
+  if (v.rr_conf != null) parts.push(`Confidence ${fmt(v.rr_conf, 2)}`);
   if (v.flags && v.flags.length) parts.push(v.flags.join(", "));
-  parts.push(["belt", "accel", "airflow"].map((s) => `${s} ${fmt(v["rr_" + s], 1)}`).join(" · "));
-  if (v.rr_prelim != null) parts.push(`30 s ${fmt(v.rr_prelim, 1)}`);
-  $("rr-detail").textContent = parts.join("  ·  ");
+  parts.push(["belt", "accel", "airflow"].map((s) => `${s} ${fmt(v["rr_" + s], 1)}`).join(", "));
+  if (v.rr_prelim != null) parts.push(`30 s preliminary ${fmt(v.rr_prelim, 1)}`);
+  $("rr-detail").textContent = parts.join(". ") + ".";
 }
 
-function applyMonitors(m) {
-  if (!m) return;
-  $("m-smart").textContent = String(m.smart.alarms);
-  $("m-naive").textContent = String(m.naive.alarms);
-  $("m-smart-rate").textContent = `${fmt(m.smart.per_hour, 1)} / hour`;
-  $("m-naive-rate").textContent = `${fmt(m.naive.per_hour, 1)} / hour`;
-  $("m-since").textContent = `Since ${fmtWhen(m.since_t)}. The naive monitor uses fixed thresholds and does not check signal quality.`;
+function applyMonitors() {}
+
+function displayReason(alert) {
+  let text = alert.reason || "";
+  if (alert.escalated) text = text.replace(/\s*[—–-]\s*escalated to charge nurse\b[^.]*/i, "");
+  return text.trim();
 }
 
-function setAlerts(list) {
+function alertArticle(a, canAck) {
+  const tag = a.escalated ? `<span class="esc-tag">Escalated to charge nurse</span>` : "";
+  const who = a.acknowledged_by ? a.acknowledged_by.display_name : "";
+  return `
+    <article class="alert" data-tier="${a.tier}" data-status="${esc(a.status)}">
+      <span class="pill">${esc(tierName(a.tier))}</span>
+      <span class="alert__reason">${esc(displayReason(a))}</span>
+      ${tag}
+      <span class="fine">${esc(fmtTime(a.raised_t))}</span>
+      ${canAck ? `
+        <form class="ack">
+          <button type="button" class="quiet add-note">Add note</button>
+          <input name="note" hidden placeholder="Note" aria-label="Acknowledgement note">
+          <button class="primary" type="submit" data-id="${a.id}">Acknowledge</button>
+        </form>` : `<span class="fine">${esc(who)}</span>`}
+    </article>`;
+}
+
+function setAlerts(list, history = []) {
   alertRows = list.slice().sort((a, b) => b.raised_t - a.raised_t);
-  const sig = alertRows.map((a) => `${a.id}:${a.status}:${a.tier}:${a.escalated}:${a.reason}:${a.ack_note || ""}`).join("|");
+  const acked = history.slice().sort((a, b) => b.raised_t - a.raised_t);
+  const sig = alertRows.map((a) => `${a.id}:${a.status}:${a.tier}:${a.escalated}:${a.reason}:${a.ack_note || ""}`).join("|")
+    + "#" + acked.map((a) => a.id).join(",");
   $("sum-explain").disabled = alertRows.length === 0;
   if (sig === alertSig) return;
   alertSig = sig;
-  const root = $("alerts");
-  if (!alertRows.length) {
-    root.innerHTML = `<p class="empty">No unacknowledged alerts.</p>`;
-    return;
+  const active = alertRows.filter((a) => a.status === "active");
+  const waiting = alertRows.filter((a) => a.status === "awaiting_ack");
+  const parts = [];
+  if (active.length) {
+    parts.push(`<h3 class="alert-group">Needs attention</h3>${active.map((a) => alertArticle(a, true)).join("")}`);
   }
-  root.innerHTML = alertRows.map((a) => {
-    const waiting = a.status === "awaiting_ack";
-    const canAck = a.status === "active" || waiting;
-    return `
-    <article class="alert" data-tier="${a.tier}" data-status="${esc(a.status)}">
-      <div class="alert__top">
-        <span class="pill">${esc(tierName(a.tier))}</span>
-        <span class="fine">${esc(fmtWhen(a.raised_t))}</span>
-        <span class="fine${waiting ? " awaiting" : ""}">${waiting ? "Resolved, awaiting acknowledgment" : "Active"}</span>
-      </div>
-      <p>${esc(a.reason)}</p>
-      ${a.tier === 3 && a.escalated ? `<p class="escalated">Escalated to charge nurse</p>` : ""}
-      ${canAck ? `<form class="ack"><input name="note" placeholder="Note (optional)" aria-label="Acknowledgement note"><button class="primary" type="submit" data-id="${a.id}">Acknowledge</button></form>` : ""}
-    </article>`;
-  }).join("");
+  if (waiting.length) {
+    parts.push(`<div class="alert-group"><h3>Recovered, waiting for acknowledgment</h3><button type="button" class="quiet" data-ack-all>Acknowledge all</button></div>${waiting.map((a) => alertArticle(a, true)).join("")}`);
+  }
+  if (acked.length) {
+    parts.push(`<details class="history"><summary>Acknowledged (${acked.length})</summary>${acked.map((a) => alertArticle(a, false)).join("")}</details>`);
+  }
+  $("alerts").innerHTML = parts.length ? parts.join("") : `<p class="empty">No alerts.</p>`;
 }
 
 function setEvents(list) {
+  allEvents = list || [];
+  renderEvents();
+  drawTrend();
+}
+
+function renderEvents() {
   const root = $("events");
-  if (!list.length) {
-    root.innerHTML = `<li class="empty">No breathing events.</li>`;
+  if (!allEvents.length) {
+    root.innerHTML = `<p class="empty">No breathing events.</p>`;
     return;
   }
-  root.innerHTML = list.map((ev) => `
-    <li>
-      <span class="ev ev-${esc(ev.type)}">${esc(eventLabel(ev.type))}</span>
-      <span>${esc(Math.round(ev.duration_s))} s</span>
-      <span>${esc(postureLabel(ev.posture))}</span>
-      <span class="fine">${esc(fmtTime(ev.start_t))}–${esc(fmtTime(ev.end_t))}</span>
-      <span class="fine">airflow ${esc(ev.airflow_pct)}% · effort ${esc(ev.effort_pct)}% · conf ${esc(fmt(ev.confidence, 2))}</span>
-    </li>`).join("");
+  const shown = eventsExpanded ? allEvents : allEvents.slice(0, 5);
+  const more = allEvents.length > 5
+    ? `<button type="button" class="quiet" data-events-more>${eventsExpanded ? "Show latest 5" : `Show all (${allEvents.length})`}</button>`
+    : "";
+  root.innerHTML = `
+    <table class="event-table">
+      <thead><tr><th>Type</th><th>Duration</th><th>Position</th><th>Time</th></tr></thead>
+      <tbody>
+        ${shown.map((ev) => `
+          <tr>
+            <td>${esc(eventLabel(ev.type))}</td>
+            <td>${esc(Math.round(ev.duration_s))} s</td>
+            <td>${esc(postureLabel(ev.posture))}</td>
+            <td>${esc(fmtTime(ev.start_t))}</td>
+          </tr>`).join("")}
+      </tbody>
+    </table>
+    ${more}`;
+}
+
+async function onAlertClick(ev) {
+  const noteBtn = ev.target.closest(".add-note");
+  if (noteBtn) {
+    const input = noteBtn.parentElement.querySelector("input");
+    input.hidden = false;
+    noteBtn.hidden = true;
+    input.focus();
+    return;
+  }
+  const allBtn = ev.target.closest("[data-ack-all]");
+  if (!allBtn) return;
+  allBtn.disabled = true;
+  try {
+    for (const a of alertRows.filter((row) => row.status === "awaiting_ack")) {
+      await api(`/api/patients/${id}/alerts/${a.id}/ack`, { method: "POST", body: { note: "" } });
+    }
+    alertSig = "";
+    await refreshClinical(id);
+  } catch (err) {
+    allBtn.disabled = false;
+    showError($("edit-error"), err);
+  }
 }
 
 async function onAck(ev) {
