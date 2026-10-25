@@ -77,6 +77,23 @@ def sign_in(c, role):
 
 # ---------------------------------------------------------------- auth
 
+def test_root_is_welcome_until_signed_in(secure):
+    welcome = secure.get("/")
+    assert welcome.status_code == 200
+    assert "simulated six-bed ward" in welcome.text
+    assert 'id="board"' not in welcome.text
+    login = secure.get("/login")
+    assert login.status_code == 200 and 'id="login-form"' in login.text
+    roles = secure.get("/static/welcome.js").text
+    assert "Sees the ward and alerts." in roles
+    assert "Sees summaries and trends." in roles
+    assert "Sees device and data." in roles
+    sign_in(secure, "nurse")
+    ward = secure.get("/")
+    assert ward.status_code == 200 and 'id="board"' in ward.text
+    assert "simulated six-bed ward" not in ward.text
+
+
 def test_unauthenticated_requests_get_401(secure):
     for method, path in [("GET", "/api/patients"), ("GET", "/api/patients/p1/state"), ("GET", "/api/auth/me"),
                          ("GET", "/api/state"), ("POST", "/api/patients/p1/alerts/1/ack")]:

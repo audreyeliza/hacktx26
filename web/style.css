@@ -391,6 +391,9 @@ textarea { resize: vertical; }
 body.login.has-public-demo { justify-content: flex-start; padding-top: 0; }
 body.login.has-public-demo .login-card { margin: auto; }
 .login-card h1 { font-size: 2.2rem; }
+.welcome-card { width: min(32rem, 100%); }
+.welcome-copy { margin: 14px 0 16px; display: grid; gap: 8px; }
+.welcome-copy p { margin: 0; }
 .demo-grid { display: grid; gap: 8px; margin: 12px 0; }
 .demo-btn { text-align: left; padding: 10px 12px; background: #fff; display: grid; }
 .demo-btn small { color: var(--muted); }

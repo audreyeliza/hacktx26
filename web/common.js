@@ -144,7 +144,7 @@ export function renderChrome(user) {
     </div>`;
   el.querySelector("[data-signout]").addEventListener("click", async () => {
     await api("/api/auth/logout", { method: "POST", redirectOn401: false });
-    location.href = "/login";
+    location.href = "/";
   });
 }
 

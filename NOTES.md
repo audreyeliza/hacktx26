@@ -487,6 +487,12 @@ records the reasoning and smaller choices.
   (the single-patient M2–M5 page is the patient detail view). Click-through of the other pages
   needs a static server that maps those paths, or the M6.5 routes.
 
+## Welcome page (signed-out `/`)
+
+- `GET /` serves `web/welcome.html` with no session, and the ward (`web/index.html`) once a session exists. `auth.enabled: false` still counts as the first admin, so that mode and the tests that use it keep getting the ward.
+- `/login` is unchanged (username and password, plus the demo sign-in buttons). A `401` on any other page still goes to `/login?next=`. Sign-out returns to `/`, which is the welcome again.
+- Demo sign-in on the welcome page is `POST /api/auth/demo`, in public-demo mode and in normal mode. The “Sign in with a username” link is `#password-fields`, so the existing public-demo check hides it when password login is off.
+
 ## Open questions
 
 - SpaceXSI track: does Claude Code count as part of the multi-agent workflow? (team is asking MLH)

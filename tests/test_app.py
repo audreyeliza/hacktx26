@@ -21,8 +21,10 @@ def recv_until(ws, kind, limit=200):
 def test_dashboard_and_static_files(test_cfg):
     with TestClient(create_app(test_cfg, source="udp")) as c:
         r = c.get("/")
-        assert r.status_code == 200 and "BreathWatch" in r.text
+        assert r.status_code == 200
+        assert "Respiro" in r.text
         assert "not a medical device" in r.text
+        assert 'id="board"' in r.text   # auth disabled counts as signed in: the ward, not the welcome
         for path in ("/static/app.js", "/static/style.css", "/static/vendor/chart.umd.min.js"):
             assert c.get(path).status_code == 200, path
 

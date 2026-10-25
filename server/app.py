@@ -39,7 +39,7 @@ WEB = ROOT / "web"
 
 # Display name -> raw channel for the live waveforms.
 WAVES = {"effort": "pressure", "airflow": "therm", "pulse": "pulse"}
-PAGES = {"/": "index.html", "/login": "login.html", "/patients/new": "patient-new.html",
+PAGES = {"/login": "login.html", "/patients/new": "patient-new.html",
          "/admin/device": "admin.html"}
 
 
@@ -340,6 +340,16 @@ def create_app(cfg: Config | None = None, source: str | None = None) -> FastAPI:
 
     for route, name in PAGES.items():
         app.add_api_route(route, (lambda n=name: page(n)), methods=["GET"], include_in_schema=False)
+
+    @app.get("/", include_in_schema=False)
+    async def home(request: Request) -> Response:
+        """Welcome when signed out; the ward once a session exists (§19.5).
+
+        auth.enabled false counts as signed in, so that mode still gets the ward.
+        """
+        if st().sessions.user_for(request.cookies) is None:
+            return page("welcome.html")
+        return page("index.html")
 
     @app.get("/patients/{patient_id}", include_in_schema=False)
     async def patient_page(patient_id: str) -> Response:

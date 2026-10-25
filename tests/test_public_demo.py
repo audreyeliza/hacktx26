@@ -95,6 +95,16 @@ def test_5_gemini_limits_fall_back_to_cache(public):
     assert len(fake.calls) == 3
 
 
+def test_welcome_then_ward_in_public_demo(public):
+    welcome = public.get("/")
+    assert welcome.status_code == 200
+    assert "simulated six-bed ward" in welcome.text
+    assert "public-demo-banner" in welcome.text
+    sign_in(public, "physician")
+    ward = public.get("/")
+    assert 'id="board"' in ward.text and "simulated six-bed ward" not in ward.text
+
+
 def test_6_banner_on_every_page(public):
     for path in ("/", "/login", "/patients/p1", "/patients/new", "/admin/device"):
         r = public.get(path)
@@ -106,7 +116,9 @@ def test_not_public_by_default(test_cfg, monkeypatch):
     monkeypatch.delenv("PUBLIC_DEMO", raising=False)
     with TestClient(create_app(test_cfg, source="udp")) as c:
         assert c.get("/api/public-config").json()["public_demo"] is False
-        assert "public-demo-banner" not in c.get("/").text
+        home = c.get("/").text
+        assert "public-demo-banner" not in home
+        assert 'id="board"' in home and "simulated six-bed ward" not in home
 
 
 def test_7_binds_localhost_behind_proxy(cfg):

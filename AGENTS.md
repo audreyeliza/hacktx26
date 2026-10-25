@@ -153,7 +153,8 @@ breathwatch/
 │   ├── auth.py             # demo accounts, sessions, role checks (§19, M6.5)
 │   └── patients.py         # patient registry + one pipeline per patient (§19, M6.5)
 ├── web/
-│   ├── index.html          # nurses' station dashboard (from M6.5: ward overview, §19)
+│   ├── index.html          # ward overview, served at / once signed in (§19)
+│   ├── welcome.html        # signed-out / : what this is, three demo sign-ins
 │   ├── app.js
 │   ├── style.css
 │   └── …                   # from M6.5: login.html, patient.html, patient-new.html, admin.html, common.js
@@ -829,13 +830,12 @@ PatientCreate:
 | `POST /api/record/stop` | — | `200 {"recording": null, "file": "data/recordings/….csv"}` |
 | `POST /api/demo/reset` | `{"reseed_ward": false}` | `200 {"patients": [PatientSummary], …}` (same as `GET /api/patients`). Clears runtime state, events, alerts and vitals of all patients and restarts simulators; `reseed_ward: true` also deletes all patients and re-creates the default ward |
 
-**Pages** (static files served by the backend; all except `/login` redirect to `/login`
-when not signed in — the JS does this on a `401` from `/api/auth/me`)
+**Pages** (static files served by the backend). `GET /` serves `web/welcome.html` when there is no session and `web/index.html` when there is (`auth.enabled: false` counts as signed in). Every other page except `/login` redirects to `/login` when not signed in — the JS does this on a `401` from `/api/auth/me`.
 
 | Path | File | Content |
 |---|---|---|
-| `/login` | `web/login.html` | username/password form + one "Demo sign-in" button per role + the demo-credentials warning |
-| `/` | `web/index.html` | **Ward overview**: tier-count banner (from `counts`), patient cards sorted as the API returns them, live vs simulated marker, unacked count; click → patient detail |
+| `/login` | `web/login.html` | username/password form + one "Demo sign-in" button per role + the demo-credentials warning. Still the target of a `401` (session expired on a ward or patient page). |
+| `/` | `web/welcome.html` when signed out, else `web/index.html` | **Welcome** for a first visit: a few lines on the monitor, then Nurse / Physician / Admin demo sign-in. Signed in: **Ward overview** — tier-count banner (from `counts`), patient cards sorted as the API returns them, live vs simulated marker, unacked count; click → patient detail |
 | `/patients/new` | `web/patient-new.html` | Add-patient form (PatientCreate); live device option disabled with a hint when already assigned (409 shown) |
 | `/patients/{id}` | `web/patient.html` | **Patient detail** = today's dashboard for one patient (tile, waveforms, trend with baseline, events, alerts with Acknowledge, naive vs smart, AI panel), plus risk factors, edit and discharge |
 | `/admin/device` | `web/admin.html` | **Device & data** (admin): Source selector, serial ports, record mode with label buttons, demo reset, network/connection info |
