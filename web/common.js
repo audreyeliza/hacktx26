@@ -2,7 +2,10 @@ import { api, openSocket, SCENARIOS } from "/static/mock.js";
 
 export { api, openSocket, ApiError, USE_MOCK, SCENARIOS, RECORD_LABELS } from "/static/mock.js";
 
-export const TIER_NAME = ["Log", "Watch", "Notify", "Urgent"];
+/** Product name. Rename here only. */
+export const PRODUCT_NAME = "BreathWatch";
+
+export const TIER_NAME = ["Stable", "Watch", "Notify", "Urgent"];
 
 const ROLE_LABEL = { nurse: "Nurse", physician: "Physician", admin: "Admin" };
 
@@ -29,7 +32,13 @@ export function fmtWhen(t) {
   return new Date(t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-export function tierName(tier) { return TIER_NAME[tier] || "Log"; }
+export function tierName(tier) { return TIER_NAME[tier] || "Stable"; }
+
+export function applyProductName() {
+  for (const el of document.querySelectorAll("[data-product]")) el.textContent = PRODUCT_NAME;
+  const titled = document.body?.dataset.title;
+  if (titled) document.title = `${titled} · ${PRODUCT_NAME}`;
+}
 
 export function qualityLabel(q) {
   return { clean: "Clean", motion: "Motion", sensor_off: "Sensor off", unknown: "Unknown" }[q] || "—";
@@ -105,7 +114,9 @@ export async function applyPublicDemo() {
 export async function boot() {
   const me = await api("/api/auth/me");
   const user = me.user || me;
+  applyProductName();
   renderChrome(user);
+  document.body.dataset.role = user.role || "";
   await applyPublicDemo();
   return user;
 }
@@ -119,17 +130,17 @@ export function renderChrome(user) {
     { href: "/patients/new", label: "Add patient", show: canEdit(user), on: path === "/patients/new" },
     { href: "/admin/device", label: "Device & data", show: user.role === "admin", on: path.startsWith("/admin") },
   ];
+  const role = ROLE_LABEL[user.role] || user.role;
   el.innerHTML = `
-    <a class="brand" href="/">BreathWatch</a>
+    <a class="brand" href="/">${esc(PRODUCT_NAME)}</a>
     <nav class="nav" aria-label="Sections">
       ${links.filter((l) => l.show).map((l) => `
         <a href="${l.href}" ${l.on ? 'aria-current="page"' : ""}>${l.label}</a>
       `).join("")}
     </nav>
     <div class="session">
-      <span class="chip">Research prototype</span>
-      <span class="session__who"><b>${esc(user.display_name)}</b><small>${esc(ROLE_LABEL[user.role] || user.role)}</small></span>
-      <button type="button" class="quiet" data-signout>Sign out</button>
+      <span class="session__who">${esc(user.display_name)} <span class="session__role">(${esc(role)})</span></span>
+      <button type="button" class="icon-btn" data-signout aria-label="Sign out" title="Sign out">⏏</button>
     </div>`;
   el.querySelector("[data-signout]").addEventListener("click", async () => {
     await api("/api/auth/logout", { method: "POST", redirectOn401: false });

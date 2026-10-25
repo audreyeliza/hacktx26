@@ -40,6 +40,7 @@ Honest record of which tool or agent produced each part of the project.
 | Sun early | Claude Code | M10 | "Calibrate supine" (API matched to Cursor's button), demo fast warm-up (first rate at 15 s, display-only), `DEMO.md` runbook. |
 | Sun early | Claude Code | deploy | Deployed the public demo to Vultr over SSH (users, SSH hardening, ufw, venv, systemd, Caddy on sslip.io) showing each command first; verified HTTPS, banner, simulated beds and all locks from the Mac. |
 | Sat night | Claude Code | local time | America/Chicago for every user-facing time (digest, chart, summaries), handoff shows SBAR cards only (small `web/patient.js` change on request), summaries include backfilled history, server timezone set, cached summaries cleared; redeployed and checked in Chrome. |
+| Sat night | Cursor (Grok 4.7) | UI pass 1 | Deck tokens and type: white, indigo, Poppins and Source Sans 3 vendored for offline use. Header shows name and role, product name is one constant, the prototype pill is gone. Tier 0 reads Stable. |
 
 ## Prompts that worked
 

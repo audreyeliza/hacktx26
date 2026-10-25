@@ -1,4 +1,4 @@
-import { api, applyPublicDemo, esc, safeNext, showError } from "/static/common.js";
+import { api, applyProductName, applyPublicDemo, esc, safeNext, showError } from "/static/common.js";
 
 const ROLE = {
   nurse: "Ward, alerts, and admissions",
@@ -6,6 +6,8 @@ const ROLE = {
   admin: "All of that, plus device and data",
 };
 const ROLE_NAME = { nurse: "Nurse", physician: "Physician", admin: "Admin" };
+
+applyProductName();
 
 const params = new URLSearchParams(location.search);
 const next = safeNext(params.get("next"));
@@ -22,7 +24,7 @@ for (const acct of accounts) {
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = "demo-btn";
-  btn.innerHTML = `<span class="eyebrow">Demo sign-in</span><span>${esc(ROLE_NAME[acct.role] || acct.role)}</span><small>${esc(acct.display_name)} · ${esc(ROLE[acct.role] || "")}</small>`;
+  btn.innerHTML = `<span>${esc(ROLE_NAME[acct.role] || acct.role)}</span><small>${esc(acct.display_name)}. ${esc(ROLE[acct.role] || "")}</small>`;
   btn.addEventListener("click", () => enter({ role: acct.role }, "/api/auth/demo"));
   demo.appendChild(btn);
 }

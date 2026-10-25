@@ -1,6 +1,6 @@
 import {
   $, admissionFields, api, boot, canEdit, esc, eventLabel, fmt, fmtTime, fmtWhen,
-  liveSocket, patientIdFromLocation, postureLabel, qualityLabel, readAdmission, riskHtml,
+  liveSocket, patientIdFromLocation, postureLabel, PRODUCT_NAME, qualityLabel, readAdmission, riskHtml,
   scenarioLabel, showError, tierName, USE_MOCK,
 } from "/static/common.js";
 
@@ -181,7 +181,7 @@ async function refreshClinical(patientId) {
 
 function applyState(state) {
   const p = state.patient;
-  document.title = `${p.name} · BreathWatch`;
+  document.title = `${p.name} · ${PRODUCT_NAME}`;
   $("pt-bed").textContent = `Bed ${p.bed}`;
   $("pt-name").textContent = p.name;
   $("pt-risk").innerHTML = riskHtml(p.risk_factors);
