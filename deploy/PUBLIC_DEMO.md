@@ -1,6 +1,9 @@
 # BreathWatch public demo — deployment notes (Vultr Ubuntu + Caddy + .TECH domain)
 
-**Not deployed yet.** These are the steps for when the team decides to put the demo online.
+**Deployed** (Sun 2026-10-25, 00:2x UTC) to the team's Vultr server — Ubuntu 24.04.5, Dallas,
+1 vCPU / 1 GB — at **https://149-28-251-200.sslip.io** (sslip.io resolves the name to the IP, so
+HTTPS works before the .TECH domain exists; switching is one line, see §5). Below are the steps
+as actually run.
 The public demo runs with `PUBLIC_DEMO=1` (AGENTS.md §20): simulated beds only, no UDP/serial
 listener, admin locked, demo sign-in buttons only, Gemini rate-limited, a "Public demo —
 simulated data, research prototype" banner on every page, and the app bound to `127.0.0.1`
@@ -21,11 +24,11 @@ Research prototype — not a medical device. Never put real patient data on the 
 
 - Cloud Compute, Regular Performance, **1 vCPU / 1 GB RAM** is enough (6 simulated beds use well
   under one core; the ward is capped at 12 patients in public mode).
-- Image: **Ubuntu 24.04 LTS x64** (Python 3.12). Ubuntu 26.04 LTS (Python 3.14) also works: the
+- Image: **Ubuntu 24.04 LTS x64** (Python 3.12; the deployed server has 3.12.3). Ubuntu 26.04 LTS (Python 3.14) also works: the
   pinned requirements resolve for both.
 - Add your SSH key, enable IPv6 if you want an AAAA record, note the server's IPv4 address.
 
-## 2. Point the .TECH domain at it
+## 2. Point the .TECH domain at it (later; the sslip.io name works without DNS)
 
 In the domain's DNS panel (get.tech or wherever the domain's nameservers are):
 
@@ -44,10 +47,33 @@ dig +short demo.yourname.tech        # should print the server's IPv4
 
 ```bash
 ssh root@SERVER_IP
-apt update && apt upgrade -y
-apt install -y python3-venv python3-dev git ufw
-adduser --system --group --home /opt/breathwatch breathwatch
-ufw allow OpenSSH && ufw allow 80/tcp && ufw allow 443/tcp && ufw --force enable
+export DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a
+apt-get update && apt-get -y upgrade && apt-get install -y python3-venv python3-dev rsync
+adduser --system --group --home /opt/breathwatch breathwatch          # runs the app, no login
+adduser --disabled-password --gecos "" audreybolyard                  # admin SSH login, key only
+usermod -aG sudo audreybolyard
+install -d -m 700 -o audreybolyard -g audreybolyard /home/audreybolyard/.ssh
+install -m 600 -o audreybolyard -g audreybolyard /root/.ssh/authorized_keys /home/audreybolyard/.ssh/authorized_keys
+echo 'audreybolyard ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-audreybolyard   # no password exists to type
+chmod 440 /etc/sudoers.d/90-audreybolyard && visudo -cf /etc/sudoers.d/90-audreybolyard
+```
+
+**Check key login works for the new user before the next step** (from the Mac):
+`ssh audreybolyard@SERVER_IP 'whoami; sudo -n true && echo sudo ok'`. Then turn off password
+login. Vultr's cloud-init file sets `PasswordAuthentication yes`; sshd uses the first value it
+reads, so a drop-in that sorts first wins:
+
+```bash
+printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\n' | sudo tee /etc/ssh/sshd_config.d/00-breathwatch-hardening.conf
+sudo sshd -t && sudo sshd -T | grep -E '^(passwordauthentication|kbdinteractiveauthentication)'
+sudo systemctl reload ssh
+# from the Mac: a password attempt must now fail with "Permission denied (publickey)"
+```
+
+Firewall (Vultr images already have ufw active with 22/tcp allowed):
+
+```bash
+sudo ufw allow 80/tcp && sudo ufw allow 443/tcp && sudo ufw status
 ```
 
 Only SSH, 80 and 443 are open. Port 8000 is never exposed (the app listens on 127.0.0.1), and
@@ -55,31 +81,32 @@ UDP 5005 stays closed (public mode does not listen for a wearable at all).
 
 ## 4. Install BreathWatch
 
-Copy the code (from git, or rsync from the Mac):
+Copy the code from the Mac (never the Mac's `.env`; the public demo gets its own key):
 
 ```bash
 # on the Mac, from the repo root
-rsync -az --exclude .git/ --exclude .venv/ --exclude data/ --exclude .env \
-      ./ root@SERVER_IP:/opt/breathwatch/
-scp .env root@SERVER_IP:/opt/breathwatch/.env          # GEMINI_API_KEY=...
+rsync -az --delete --rsync-path="sudo rsync" --exclude .git/ --exclude .venv/ --exclude data/ --exclude .env \
+      --exclude __pycache__/ --exclude .pytest_cache/ --exclude .DS_Store --exclude .vscode/ --exclude .micropico \
+      ./ audreybolyard@SERVER_IP:/opt/breathwatch/
 ```
 
 Then on the server:
 
 ```bash
-cd /opt/breathwatch
-python3 -m venv .venv
-.venv/bin/pip install --upgrade pip
-.venv/bin/pip install -r requirements.txt
-mkdir -p data/.matplotlib
-chown -R breathwatch:breathwatch /opt/breathwatch
-chmod 600 /opt/breathwatch/.env
-install -m 644 deploy/breathwatch-public.service /etc/systemd/system/
-systemctl daemon-reload
-systemctl enable --now breathwatch-public
-systemctl status breathwatch-public           # "PUBLIC DEMO mode: ..." in the log
+sudo install -d -o breathwatch -g breathwatch /opt/breathwatch/data/.matplotlib
+[ -f /opt/breathwatch/.env ] || printf 'GEMINI_API_KEY=\n' | sudo tee /opt/breathwatch/.env >/dev/null   # empty placeholder
+sudo chown -R breathwatch:breathwatch /opt/breathwatch && sudo chmod 600 /opt/breathwatch/.env
+sudo -u breathwatch python3 -m venv /opt/breathwatch/.venv
+sudo -u breathwatch /opt/breathwatch/.venv/bin/pip install -q --no-cache-dir --upgrade pip
+sudo -u breathwatch /opt/breathwatch/.venv/bin/pip install -q --no-cache-dir -r /opt/breathwatch/requirements.txt
+sudo install -m 644 /opt/breathwatch/deploy/breathwatch-public.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now breathwatch-public
 curl -s http://127.0.0.1:8000/api/public-config   # {"public_demo": true, ...}
 ```
+
+Startup takes **~16 s** on 1 vCPU (each simulated bed is backfilled with 150 s of history);
+`curl` is refused until `Application startup complete` appears in `journalctl -u breathwatch-public`.
+The app uses ~115 MB of RAM.
 
 ## 5. Caddy (HTTPS)
 
@@ -88,15 +115,26 @@ apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
 curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
 curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > /etc/apt/sources.list.d/caddy-stable.list
 apt update && apt install -y caddy
-cp /opt/breathwatch/deploy/Caddyfile.example /etc/caddy/Caddyfile
-nano /etc/caddy/Caddyfile                     # replace demo.example.tech with your domain
-mkdir -p /var/log/caddy && chown caddy:caddy /var/log/caddy
-caddy validate --config /etc/caddy/Caddyfile
-systemctl reload caddy
+grep -v '^\s*#' /opt/breathwatch/deploy/Caddyfile.example | sudo tee /etc/caddy/Caddyfile >/dev/null   # line 1 = site address
+sudo install -d -o caddy -g caddy /var/log/caddy
+sudo -u caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile   # as caddy, see below
+sudo systemctl reload caddy
 ```
 
-Caddy requests a Let's Encrypt certificate on the first request; open
-`https://demo.yourname.tech/login` and use a **Demo sign-in** button. The browser must show a
+Gotcha (hit on the real deploy): `sudo caddy validate` **as root** creates
+`/var/log/caddy/breathwatch.log` owned by root, and the reload then fails ("opening log writer").
+Validate as the `caddy` user as above, or `sudo chown caddy:caddy /var/log/caddy/breathwatch.log`.
+
+Caddy obtains a Let's Encrypt certificate right after the reload; open
+`https://149-28-251-200.sslip.io/login` and use a **Demo sign-in** button.
+
+**Switching to the .TECH domain (one line):** add the A record (§2), check `dig +short`, then
+
+```bash
+sudo sed -i '1s/.*/demo.yourname.tech {/' /etc/caddy/Caddyfile && sudo systemctl reload caddy
+```
+
+(or `149-28-251-200.sslip.io, demo.yourname.tech {` on line 1 to serve both while switching). The browser must show a
 valid certificate (the session cookie is `Secure` in public mode, so plain HTTP cannot sign in).
 
 ## 6. Checks after deploying
@@ -108,7 +146,20 @@ valid certificate (the session cookie is `Secure` in public mode, so plain HTTP 
 - AI panel: a summary appears ("Powered by Gemini"); after 6 in an hour it serves the cached copy.
 - `ss -lntup` on the server: only Caddy on :80/:443 and Python on 127.0.0.1:8000.
 
-## 7. Day-to-day
+## 7. Adding the public-demo Gemini key
+
+Until a key is set, every summary answers `503 "Gemini unavailable (GEMINI_API_KEY is not set …)
+and no cached … summary yet"` and the frontend shows that the language model is unreachable.
+
+```bash
+ssh audreybolyard@SERVER_IP
+sudoedit /opt/breathwatch/.env                # set GEMINI_API_KEY=… (keeps owner breathwatch, mode 600)
+sudo systemctl restart breathwatch-public     # optional: the key is read again on the next summary anyway
+```
+
+Use a separate key with a budget cap in Google AI Studio.
+
+## 8. Day-to-day
 
 ```bash
 journalctl -u breathwatch-public -f           # app log (the key is never logged)

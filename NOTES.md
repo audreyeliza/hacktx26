@@ -357,6 +357,26 @@ records the reasoning and smaller choices.
   failure table. UI labels taken from Cursor's pages (read-only). Volunteer safety notes for the
   breath-holds are included.
 
+## Public demo deployed (Sun 2026-10-25)
+
+- **URL: https://149-28-251-200.sslip.io** (Vultr, Ubuntu 24.04.5, Dallas, 1 vCPU / 955 MB).
+  Steps as run are in deploy/PUBLIC_DEMO.md. Users: `breathwatch` (system, runs the app),
+  `audreybolyard` (SSH key only, passwordless sudo). SSH password and keyboard-interactive auth off
+  (drop-in `00-breathwatch-hardening.conf`, verified a password attempt gets "Permission denied
+  (publickey)"). Root can still log in **with the key** (`PermitRootLogin yes` untouched).
+  ufw: 22, 80, 443/tcp. App on 127.0.0.1:8000 only; no UDP listener.
+- Gemini key **not set** (empty placeholder `/opt/breathwatch/.env`, mode 600): summaries return
+  503 "GEMINI_API_KEY is not set … and no cached … summary yet".
+- Verified from the Mac over HTTPS: valid Let's Encrypt cert, HTTP→HTTPS 308, HSTS/nosniff/DENY,
+  banner on pages, `public-config`, six simulated beds (bed 4 = `demo`), password login 403,
+  source/serial/record 403, live-device patient 400, legacy live endpoints 404, second reset 429,
+  `wss://` ward + patient sockets, ports 8000/5005 closed from outside. Cursor's pages render.
+- Observed: right after a reset bed 4 can sit in the `demo` scenario's 3-minute motion block,
+  during which its rate is withheld ("missing data": > 20 % of the window masked as motion) even
+  between bursts. Correct behaviour, but it looks like a blank tile for up to ~3 min.
+- Deploy gotcha written into the doc: `sudo caddy validate` as root creates a root-owned log
+  file and the reload fails.
+
 ## Clinical app shell contract (§19) — choices made while writing it
 
 - **Both WebSockets:** a light `/ws/ward` (summaries + alert pushes) for the overview and a heavy
