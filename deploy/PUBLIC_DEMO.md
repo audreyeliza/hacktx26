@@ -68,6 +68,9 @@ printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\n' | sudo tee
 sudo sshd -t && sudo sshd -T | grep -E '^(passwordauthentication|kbdinteractiveauthentication)'
 sudo systemctl reload ssh
 # from the Mac: a password attempt must now fail with "Permission denied (publickey)"
+# then, after confirming `ssh audreybolyard@SERVER_IP 'sudo -n true'` works, turn off root login:
+echo 'PermitRootLogin no' | sudo tee -a /etc/ssh/sshd_config.d/00-breathwatch-hardening.conf
+sudo sshd -t && sudo systemctl reload ssh      # root@SERVER_IP now gets "Permission denied"
 ```
 
 Firewall (Vultr images already have ufw active with 22/tcp allowed):

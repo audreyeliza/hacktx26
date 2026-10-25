@@ -363,7 +363,8 @@ records the reasoning and smaller choices.
   Steps as run are in deploy/PUBLIC_DEMO.md. Users: `breathwatch` (system, runs the app),
   `audreybolyard` (SSH key only, passwordless sudo). SSH password and keyboard-interactive auth off
   (drop-in `00-breathwatch-hardening.conf`, verified a password attempt gets "Permission denied
-  (publickey)"). Root can still log in **with the key** (`PermitRootLogin yes` untouched).
+  (publickey)"). Root SSH login **disabled** (`PermitRootLogin no` in the same drop-in, after checking
+  `audreybolyard` key login + sudo); admin is via `audreybolyard` + sudo only.
   ufw: 22, 80, 443/tcp. App on 127.0.0.1:8000 only; no UDP listener.
 - Gemini key **not set** (empty placeholder `/opt/breathwatch/.env`, mode 600): summaries return
   503 "GEMINI_API_KEY is not set … and no cached … summary yet".
