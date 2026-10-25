@@ -21,7 +21,7 @@ network:
   serial_baud: 115200
 
 ingest:
-  default_source: udp      # udp | serial:auto | serial:/dev/cu.usbmodemXXXX | simulator:<scenario>
+  default_source: serial:auto  # usb wearable; udp | serial:/dev/cu.usbmodemXXXX | simulator:<scenario>
   default_speed: 1.0       # simulator playback speed for the in-process source
   buffer_s: 600            # ring buffer length per channel (10 min)
   restart_seq_back: 4      # seq this far behind the newest = device restarted (re-anchor)

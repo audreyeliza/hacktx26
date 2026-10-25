@@ -64,8 +64,9 @@ records the reasoning and smaller choices.
 - **Platform:** the Mac runs the server for dev and the demo; the Pi 4 (Trixie, Python 3.13) is an
   optional target. AGENTS.md §3/§15/§17 updated. Checked: every pin in `requirements.txt` resolves
   to Python 3.13 aarch64 wheels.
-- **Default source is `udp`** (`ingest.default_source`), so both the external simulator and a WiFi
-  Pico work with no clicks. Switch to `serial:auto` in the dashboard or config for USB.
+- **Default source is `serial:auto`** (`ingest.default_source`), so a restart picks up the Pico on
+  USB without another click. Switch to `udp` in the dashboard for a Wi-Fi Pico or the external
+  simulator.
 - **Timeline anchoring:** sample time = first packet's arrival + sample index × 20 ms. With
   `--speed 10`, sample time runs ahead of the wall clock, which is fine: processing runs on sample
   time. Re-anchor happens on `seq` going back > 4 (`restart_seq_back`) or a device id change;
