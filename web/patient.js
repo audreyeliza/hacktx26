@@ -525,10 +525,17 @@ async function buildAdmission(patient, currentUser) {
     $("role-note").hidden = false;
     return;
   }
-  const ward = await api("/api/patients?status=admitted");
+  const [ward, pub] = await Promise.all([
+    api("/api/patients?status=admitted"),
+    api("/api/public-config", { redirectOn401: false }).catch(() => ({ live_device: true })),
+  ]);
   const live = ward.patients.find((p) => p.device_kind === "live") || null;
   const form = $("edit-form");
-  form.innerHTML = admissionFields(patient, live) + `<div class="form-actions"><button class="primary" type="submit">Save admission</button></div>`;
+  form.innerHTML = admissionFields(patient, live, {
+    admin: currentUser.role === "admin",
+    takenBeds: ward.patients.map((p) => p.bed),
+    liveDisabled: pub.live_device === false,
+  }) + `<div class="form-actions"><button class="primary" type="submit">Save admission</button></div>`;
   form.addEventListener("submit", async (ev) => {
     ev.preventDefault();
     showError($("edit-error"), null);

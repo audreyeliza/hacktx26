@@ -180,52 +180,78 @@ export function showError(el, err) {
   el.textContent = err.detail || err.message || "Something went wrong";
 }
 
-export function admissionFields(patient, liveHolder) {
+export function admissionFields(patient, liveHolder, opts = {}) {
   const rf = patient?.risk_factors || { opioids: false, supplemental_o2: false, osa: "none", age_over_65: false };
   const device = patient?.device || { kind: "simulator", scenario: "normal", speed: 1, loop: true };
-  const blocked = Boolean(liveHolder && (!patient || liveHolder.id !== patient.id));
+  const blocked = Boolean(opts.liveDisabled) || Boolean(liveHolder && (!patient || liveHolder.id !== patient.id));
   const liveOn = device.kind === "live" && !blocked;
   const scenario = device.scenario || "normal";
   const options = SCENARIOS.map((name) => `
     <option value="${esc(name)}" ${name === scenario ? "selected" : ""}>${esc(scenarioLabel(name))}</option>
   `).join("");
-  const hint = blocked
-    ? `The live wearable is already assigned to bed ${liveHolder.bed}, ${liveHolder.name}.`
-    : "Packets whose device id matches this assignment are routed here.";
+  const taken = new Set((opts.takenBeds || []).map(String));
+  if (patient?.bed) taken.delete(String(patient.bed));
+  const beds = ["1", "2", "3", "4", "5", "6"];
+  for (const bed of opts.takenBeds || []) {
+    const label = String(bed);
+    if (!beds.includes(label)) beds.push(label);
+  }
+  const open = beds.filter((bed) => !taken.has(bed));
+  const bedOptions = open.length
+    ? open.map((bed) => `
+    <option value="${esc(bed)}" ${String(patient?.bed || "") === bed ? "selected" : ""}>Bed ${esc(bed)}</option>
+  `).join("")
+    : `<option value="" selected>No open beds</option>`;
+  const hint = opts.liveDisabled
+    ? "Live wearable is off in the public demo."
+    : blocked
+      ? `The live wearable is already assigned to bed ${liveHolder.bed}, ${liveHolder.name}.`
+      : "";
+  const speed = device.speed ?? 1;
+  const loopOn = device.loop !== false;
+  const deviceId = device.device_id || "patch-01";
+  const advanced = opts.admin ? `
+    <details class="advanced">
+      <summary>Advanced</summary>
+      <label>Device id <input name="device_id" value="${esc(deviceId)}" ${blocked ? "disabled" : ""}></label>
+      <div class="fields">
+        <label>Speed <input name="speed" type="number" min="0" step="0.5" value="${esc(speed)}"></label>
+        <label class="check"><input type="checkbox" name="loop" ${loopOn ? "checked" : ""}> Loop</label>
+      </div>
+    </details>` : `
+    <input type="hidden" name="device_id" value="${esc(deviceId)}">
+    <input type="hidden" name="speed" value="${esc(speed)}">
+    <input type="hidden" name="loop" value="${loopOn ? "on" : ""}">`;
   return `
-    <div class="fields">
-      <label>Name <input name="name" required maxlength="80" value="${esc(patient?.name || "")}"></label>
-      <label>Bed <input name="bed" required maxlength="8" value="${esc(patient?.bed || "")}"></label>
-    </div>
+    <label>Name <input name="name" required maxlength="80" value="${esc(patient?.name || "")}"></label>
+    <label>Bed <select name="bed" required>${bedOptions}</select></label>
     <label>Notes
       <textarea name="notes" rows="2" maxlength="280">${esc(patient?.notes || "")}</textarea>
     </label>
     <fieldset>
       <legend>Risk factors</legend>
-      <p class="fine">Context only. These never change alarm thresholds.</p>
-      <label class="check"><input type="checkbox" name="opioids" ${rf.opioids ? "checked" : ""}> Opioids</label>
-      <label class="check"><input type="checkbox" name="supplemental_o2" ${rf.supplemental_o2 ? "checked" : ""}> Supplemental oxygen</label>
-      <label class="check"><input type="checkbox" name="age_over_65" ${rf.age_over_65 ? "checked" : ""}> Age over 65</label>
-      <label>Obstructive sleep apnea
+      <p class="fine">Context only — never changes alarm thresholds.</p>
+      <div class="chip-row">
+        <label class="toggle"><input type="checkbox" name="opioids" ${rf.opioids ? "checked" : ""}> Opioids</label>
+        <label class="toggle"><input type="checkbox" name="supplemental_o2" ${rf.supplemental_o2 ? "checked" : ""}> Supplemental O₂</label>
+        <label class="toggle"><input type="checkbox" name="age_over_65" ${rf.age_over_65 ? "checked" : ""}> Age over 65</label>
+      </div>
+      <label>OSA
         <select name="osa">
-          <option value="none" ${rf.osa === "none" ? "selected" : ""}>None recorded</option>
+          <option value="none" ${rf.osa === "none" ? "selected" : ""}>None</option>
           <option value="suspected" ${rf.osa === "suspected" ? "selected" : ""}>Suspected</option>
           <option value="known" ${rf.osa === "known" ? "selected" : ""}>Known</option>
         </select>
       </label>
     </fieldset>
     <fieldset>
-      <legend>Device</legend>
-      <label class="check"><input type="radio" name="kind" value="simulator" ${liveOn ? "" : "checked"}> Simulator scenario</label>
-      <div class="fields device-sim">
-        <label>Scenario <select name="scenario">${options}</select></label>
-        <label>Speed <input name="speed" type="number" min="0" step="0.5" value="${esc(device.speed ?? 1)}"></label>
-        <label class="check"><input type="checkbox" name="loop" ${device.loop === false ? "" : "checked"}> Loop</label>
-      </div>
-      <label class="check"><input type="radio" name="kind" value="live" ${liveOn ? "checked" : ""} ${blocked ? "disabled" : ""}> Live wearable</label>
-      <label>Device id <input name="device_id" value="${esc(device.device_id || "patch-01")}" ${blocked ? "disabled" : ""}></label>
-      <p class="fine" id="live-hint">${esc(hint)}</p>
-    </fieldset>`;
+      <legend>Monitoring</legend>
+      <label class="choice"><input type="radio" name="kind" value="live" ${liveOn ? "checked" : ""} ${blocked ? "disabled" : ""}> Live wearable</label>
+      <label class="choice"><input type="radio" name="kind" value="simulator" ${liveOn ? "" : "checked"}> Demo simulation</label>
+      <label class="sim-only">Scenario <select name="scenario">${options}</select></label>
+      ${hint ? `<p class="fine">${esc(hint)}</p>` : ""}
+    </fieldset>
+    ${advanced}`;
 }
 
 export function readAdmission(form) {

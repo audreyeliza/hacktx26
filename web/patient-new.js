@@ -2,9 +2,16 @@ import { $, admissionFields, api, boot, canEdit, readAdmission, showError } from
 
 const user = await boot();
 const form = $("new-form");
-const ward = await api("/api/patients?status=admitted");
+const [ward, pub] = await Promise.all([
+  api("/api/patients?status=admitted"),
+  api("/api/public-config", { redirectOn401: false }).catch(() => ({ live_device: true })),
+]);
 const live = ward.patients.find((p) => p.device_kind === "live") || null;
-form.innerHTML = admissionFields(null, live) + `
+form.innerHTML = admissionFields(null, live, {
+  admin: user.role === "admin",
+  takenBeds: ward.patients.map((p) => p.bed),
+  liveDisabled: pub.live_device === false,
+}) + `
   <div class="form-actions">
     <button class="primary" type="submit" id="save">Admit patient</button>
     <a class="quiet" href="/">Cancel</a>

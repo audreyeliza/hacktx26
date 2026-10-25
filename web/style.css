@@ -475,3 +475,18 @@ body[data-role="physician"] #note-panel { order: -1; }
 .event-table td { padding: 8px 8px 8px 0; border-top: 1px solid var(--line); }
 .event-table th:nth-child(2), .event-table td:nth-child(2),
 .event-table th:nth-child(4), .event-table td:nth-child(4) { text-align: right; }
+
+.chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.toggle {
+  display: inline-flex; align-items: center; gap: 8px;
+  border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; background: #fff;
+}
+.toggle input { accent-color: var(--brand); }
+.toggle:has(input:checked) { background: var(--brand-soft); border-color: var(--brand); color: var(--brand); }
+.choice { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+.choice input, .check input { accent-color: var(--brand); }
+form:has(input[name="kind"][value="live"]:checked) .sim-only { display: none; }
+.advanced { margin-top: 12px; }
+#new-form { max-width: 32rem; display: grid; gap: 12px; }
+#new-form .form-actions { display: flex; gap: 8px; align-items: center; }
+#new-form .form-actions .quiet { text-decoration: none; }
