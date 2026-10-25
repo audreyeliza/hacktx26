@@ -632,8 +632,9 @@ function wardPayload(status) {
     generated_t: sec(t),
     shift: {
       label: "This shift",
-      smart: { alarms: smart, per_hour: 0 },
-      naive: { alarms: naive, per_hour: 0 },
+      rates_available: false,
+      smart: { alarms: smart, per_hour: null },
+      naive: { alarms: naive, per_hour: null },
     },
   };
 }

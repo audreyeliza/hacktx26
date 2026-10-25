@@ -68,8 +68,21 @@ function paint(payload) {
   }
   const shift = payload.shift;
   $("shift-label").textContent = shift && shift.label ? shift.label : "This shift";
-  $("smart-n").textContent = shift && shift.smart ? String(shift.smart.alarms) : "—";
-  $("std-n").textContent = shift && shift.naive ? String(shift.naive.alarms) : "—";
+  const counts = $("shift-counts");
+  const rates = $("shift-rates");
+  if (shift && shift.smart && shift.naive) {
+    counts.textContent = `${shift.smart.alarms} vs ${shift.naive.alarms} this shift`;
+    const showRates = shift.rates_available === true
+      && shift.smart.per_hour != null && shift.naive.per_hour != null;
+    rates.hidden = !showRates;
+    rates.textContent = showRates
+      ? `${fmt(shift.smart.per_hour, 1)} vs ${fmt(shift.naive.per_hour, 1)} per hour`
+      : "";
+  } else {
+    counts.textContent = "—";
+    rates.hidden = true;
+    rates.textContent = "";
+  }
 
   const shown = filter == null ? payload.patients : payload.patients.filter((p) => p.tier === filter);
   const n = payload.patients.length;

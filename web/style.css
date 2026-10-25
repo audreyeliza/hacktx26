@@ -162,6 +162,7 @@ h2 { font-size: 1.25rem; margin: 0 0 10px; }
 .shift-stat { text-align: right; }
 .shift-stat__nums { margin: 0; font-family: var(--display); font-weight: 600; font-size: 1.15rem; }
 .shift-stat__nums span { font-family: var(--sans); font-weight: 400; color: var(--ink-2); font-size: 0.95rem; }
+#shift-rates { margin: 2px 0 0; }
 .tier-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
 .tier-chip {
   display: inline-flex; align-items: center; gap: 8px;
