@@ -397,6 +397,24 @@ records the reasoning and smaller choices.
 - The mix is guaranteed for the first 30 s after a start/reset; later it drifts as each scenario
   loops (in the public demo, latched tier-3 alerts stay until someone acknowledges them).
 
+## Local time everywhere (Sat 2026-10-24, 9 PM CDT)
+
+- **Cause of the UTC times:** the digest/chart formatted with the process's local time, and the
+  server process was started while the VPS was on UTC. Now every user-facing time uses
+  `display.timezone` (America/Chicago) explicitly via zoneinfo: digest clock times ("8:54 PM", with
+  the zone and dates), chart x axis in local clock time, and the prompt tells Gemini the times are
+  local ward time. A test checks the output is Chicago time even with `TZ=UTC`.
+- Server timezone also set to America/Chicago (`timedatectl`), so server logs read local time.
+- **Handoff display:** `sbar` now also carries `chart_observation` and `discrepancies`; the patient
+  page (`web/patient.js`, a one-function change done here at the team's request) shows the four
+  cards plus those two lines and no raw text. Checked in Chrome on the public demo.
+- **Found while checking:** right after a reseed, summaries saw a single reading, because the
+  backfilled history predates the admission time. A backfilled bed's `admitted_t` now moves back to
+  the start of its history. The chart axis also repeated "9:07 PM" for short stays; it now spans
+  ≥ 5 min with distinct minute labels.
+- Cached summaries cleared on the public server (5 total, in two passes) and locally (0 there);
+  `python -m server.store --clear-summaries` does it.
+
 ## Clinical app shell contract (§19) — choices made while writing it
 
 - **Both WebSockets:** a light `/ws/ward` (summaries + alert pushes) for the overview and a heavy

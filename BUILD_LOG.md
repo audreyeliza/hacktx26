@@ -39,6 +39,7 @@ Honest record of which tool or agent produced each part of the project.
 | Sat night | Cursor (Grok) | M8 | Pico firmware: `firmware/main.py` (50 Hz `ticks_diff` loop, UDP with USB-serial fallback, commands on UDP 5006 and stdin), `firmware/mma8452q.py`, `firmware/secrets_example.py`. Packets checked with `server.schema.parse_packet` against the rules in `tests/test_schema.py` (25 samples, `read_u16` bit pattern, 3-decimal accel, under 1400 bytes). |
 | Sun early | Claude Code | M10 | "Calibrate supine" (API matched to Cursor's button), demo fast warm-up (first rate at 15 s, display-only), `DEMO.md` runbook. |
 | Sun early | Claude Code | deploy | Deployed the public demo to Vultr over SSH (users, SSH hardening, ufw, venv, systemd, Caddy on sslip.io) showing each command first; verified HTTPS, banner, simulated beds and all locks from the Mac. |
+| Sat night | Claude Code | local time | America/Chicago for every user-facing time (digest, chart, summaries), handoff shows SBAR cards only (small `web/patient.js` change on request), summaries include backfilled history, server timezone set, cached summaries cleared; redeployed and checked in Chrome. |
 
 ## Prompts that worked
 
