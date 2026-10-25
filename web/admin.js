@@ -66,7 +66,25 @@ function connectionWords(device) {
   return "Receiving";
 }
 
+function paintQuality(qm) {
+  // Which signal-quality decider is active: the trained model (v1) or the rules (v0), and why.
+  if (!qm) { $("quality-line").textContent = "—"; $("quality-detail").textContent = ""; return; }
+  if (qm.active === "model") {
+    $("quality-line").innerHTML = `<span class="status-dot" data-ok="1"></span> Trained model (${esc(qm.version)}) decides signal quality`;
+    const acc = qm.accuracy == null ? "not evaluated" : `${Math.round(qm.accuracy * 100)}% on held-out data`;
+    const when = qm.trained_t ? new Date(qm.trained_t * 1000).toLocaleString() : "—";
+    $("quality-detail").textContent =
+      `${qm.n_windows} windows from ${qm.real_files} real-wearable recording(s)` +
+      (qm.simulated_files ? ` + ${qm.simulated_files} simulated` : "") +
+      ` · ${acc} · trained ${when} · ${qm.path}`;
+  } else {
+    $("quality-line").innerHTML = `<span class="status-dot" data-ok="0"></span> Rules (${esc(qm.version || "v0")}) decide signal quality`;
+    $("quality-detail").textContent = qm.reason ? `Trained model not used: ${qm.reason}.` : "";
+  }
+}
+
 function paint(device) {
+  paintQuality(device.quality_model);
   $("source-line").innerHTML = `<span class="status-dot" data-ok="${device.link_ok ? "1" : "0"}"></span> ${esc(connectionWords(device))}`;
   const stats = device.stats || {};
   const cells = [

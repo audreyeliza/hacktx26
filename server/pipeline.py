@@ -42,7 +42,7 @@ class StepResult:
 
 
 class Pipeline:
-    def __init__(self, cfg: Config, fs: float, patient_id: str, store: Any = None) -> None:
+    def __init__(self, cfg: Config, fs: float, patient_id: str, store: Any = None, quality_model: Any = None) -> None:
         self.cfg = cfg
         self.fs = fs
         self.patient_id = patient_id
@@ -54,6 +54,8 @@ class Pipeline:
         self.ongoing: dict[str, Any] | None = None
         self.posture = "unknown"
         self.rotation: Any = None   # "calibrate supine" rotation (numpy 3x3) or None
+        self.quality_model = quality_model   # shared QualityModel (v1) or None → v0 rules
+        self.model_quality: str | None = None   # latest model verdict, also gates the apnea watch
         self.vitals_step = int(round(cfg.signals.rate_interval_s * fs))
         self.watch_step = int(round(cfg.events.watch_interval_s * fs))
         self._next_event_id = 1
@@ -73,6 +75,8 @@ class Pipeline:
         block, segments = segment_masks(raw, self.fs, self.cfg)
         seg = segments[-1]
         quality_ok = seg.label == "clean" and seg.confidence >= self.cfg.alerts.gate_quality_conf
+        if self.model_quality is not None and self.model_quality != "clean":
+            quality_ok = False      # the trained model's latest verdict (5 s step) also gates apneas
         new = [self._finish(e, sample_time) for e in self.detector.update(block, end, self.posture)]
         self.events.extend(new)
         ongoing = self.detector.ongoing()
@@ -84,7 +88,8 @@ class Pipeline:
 
     def step(self, buffers: RingBuffer, end: int, sample_time: SampleTime) -> StepResult:
         """Vitals step (every 5 s): rates, quality, posture, naive monitor, rate/sensor rules."""
-        vitals, _ = analyze(buffers, end, self.fs, self.cfg, self.rotation)
+        vitals, _ = analyze(buffers, end, self.fs, self.cfg, self.rotation, self.quality_model)
+        self.model_quality = vitals["quality"] if vitals["quality_source"] == "model" else None
         t = sample_time(end)
         vitals["t"] = t
         self.posture = vitals["posture"]

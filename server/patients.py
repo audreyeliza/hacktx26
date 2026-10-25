@@ -142,7 +142,7 @@ class PatientRuntime:
         return self.patient["device"]["kind"] == "live"
 
     def _fresh(self) -> None:
-        self.pipeline = Pipeline(self.cfg, self.fs, self.id, self.ward.store)
+        self.pipeline = Pipeline(self.cfg, self.fs, self.id, self.ward.store, self.ward.quality_model)
         cal = self.patient.get("calibration")
         self.pipeline.rotation = supine_rotation(np.array(cal["gravity"])) if cal else None
         self.tick = self.pipeline.watch_step
@@ -351,6 +351,7 @@ class Ward:
         self.store = store
         self.ingest = ingest
         self.public = public          # PUBLIC_DEMO (§20): simulated beds only, capped ward size
+        self.quality_model: Any = None   # QualityModel (v1) shared by every pipeline; None → rules
         self.runtimes: dict[str, PatientRuntime] = {}
         self.rng = random.Random(cfg.simulator.seed)
         self.alert_seq = 0

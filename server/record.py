@@ -7,12 +7,13 @@ import csv
 import re
 import time
 from pathlib import Path
+from collections.abc import Callable
 from typing import IO, Any
 
 from server.config import ROOT, Config
 from server.ingest import CHANNELS
 
-COLUMNS = ("device", "seq", "k", "t0_ms", *CHANNELS, "label")
+COLUMNS = ("device", "seq", "k", "t0_ms", *CHANNELS, "label", "source")   # source: provenance for training
 NAME = re.compile(r"^[A-Za-z0-9_-]{1,64}$")   # session / segment names: no path tricks
 
 
@@ -33,6 +34,8 @@ class Recorder:
         self.samples = 0
         self.path: Path | None = None
         self.session: str | None = None
+        self.source_fn: Callable[[], str] = lambda: "unknown"   # the live input, e.g. "serial:/dev/…"
+        self.source = "unknown"
         self._file: IO[str] | None = None
         self._writer: Any = None
 
@@ -64,6 +67,7 @@ class Recorder:
         self._writer = csv.writer(self._file)
         self._writer.writerow(COLUMNS)
         self.label, self.started_t, self.samples = label, time.time(), 0
+        self.source = self.source_fn()
         return self.status() or {}
 
     def stop(self) -> str | None:
@@ -80,5 +84,5 @@ class Recorder:
         n = len(pkt["pressure"])
         for k in range(n):
             self._writer.writerow((pkt["device"], pkt["seq"], k, pkt["t0_ms"],
-                                   *(pkt[c][k] for c in CHANNELS), self.label))
+                                   *(pkt[c][k] for c in CHANNELS), self.label, self.source))
         self.samples += n

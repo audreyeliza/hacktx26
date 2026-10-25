@@ -128,7 +128,8 @@ quality:                      # v0 rules (AGENTS.md section 7); per 10 s segment
   float_hf_hz: 1.5
   float_corr: 0.6             # two in-band channels this correlated above float_hf_hz = floating
   float_min_hf_share: 0.5     # single in-band channel: mostly high-frequency jitter = floating
-  model_path: data/quality_model.joblib   # v1 (milestone 9); v0 rules if missing
+  model_path: data/quality_model.joblib   # v1 (milestone 9); v0 rules if missing or refused
+  allow_simulated_model: false            # never activate a model with no real-wearable recordings
 
 events:                       # AGENTS.md section 7 (Events); amplitudes relative to baseline
   point_s: 1.0                # resolution of the event state machine

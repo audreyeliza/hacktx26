@@ -30,6 +30,7 @@ from server.ingest import CH, Ingest, list_serial_ports, local_ips
 from server.llm import LLMUnavailable, Summarizer, render_chart
 from server.patients import PatientCreate, PatientRuntime, PatientUpdate, Ward, WardError
 from server.public_demo import RateLimiter, inject_banner, is_enabled
+from server.quality_model import QualityModel
 from server.record import Recorder
 from server.simulator import SCENARIO_NAMES
 from server.store import Store
@@ -52,11 +53,14 @@ class State:
         self.store = Store(cfg.store.path)
         self.ingest = Ingest(cfg)
         self.ward = Ward(cfg, self.store, self.ingest, public=self.public)
+        self.quality_model = QualityModel(cfg)          # v1 if a usable trained model exists, else rules
+        self.ward.quality_model = self.quality_model
         self.limiter = RateLimiter()
         self.last_reset_t = 0.0
         self.sessions = Sessions(cfg.auth)
         self.recorder = Recorder(cfg)
         self.ingest.on_packet = self.recorder.on_packet
+        self.recorder.source_fn = lambda: self.ingest.source_spec
         self.summarizer = Summarizer(cfg, self.store)
         self.started = time.time()
 
@@ -80,6 +84,7 @@ class State:
             "unassigned_packets": ing.unassigned_packets,
             "network": self.network(),
             "recording": self.recorder.status(),
+            "quality_model": self.quality_model.status,
         }
 
     def legacy_snapshot(self, rt: PatientRuntime) -> dict[str, Any]:
@@ -529,6 +534,11 @@ def create_app(cfg: Config | None = None, source: str | None = None) -> FastAPI:
     @app.get("/api/admin/device")
     async def admin_device(user: dict = Depends(admin_only)) -> dict[str, Any]:
         return st().admin_device()
+
+    @app.post("/api/admin/quality-model/reload")
+    async def reload_quality_model(user: dict = Depends(admin_only)) -> dict[str, Any]:
+        """Pick up a newly trained data/quality_model.joblib without restarting."""
+        return {"quality_model": await asyncio.to_thread(st().quality_model.reload)}
 
     @app.post("/api/source")
     async def post_source(req: SourceRequest, user: dict = Depends(admin_only)) -> dict[str, Any]:

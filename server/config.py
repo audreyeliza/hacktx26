@@ -151,6 +151,7 @@ class QualityCfg:
     float_corr: float
     float_min_hf_share: float
     model_path: str
+    allow_simulated_model: bool
 
 
 @dataclass(frozen=True)

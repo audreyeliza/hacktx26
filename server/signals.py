@@ -215,7 +215,7 @@ def compute_vitals(buffers: RingBuffer, end: int, fs: float, cfg: Config) -> dic
 
 
 def analyze(buffers: RingBuffer, end: int, fs: float, cfg: Config,
-            rotation: np.ndarray | None = None) -> tuple[dict[str, Any], np.ndarray]:
+            rotation: np.ndarray | None = None, quality_model: Any = None) -> tuple[dict[str, Any], np.ndarray]:
     """All rates, quality and posture for the windows ending at sample index `end`, plus the
     quality-masked 60 s block (for event detection).
 
@@ -243,6 +243,19 @@ def analyze(buffers: RingBuffer, end: int, fs: float, cfg: Config,
     hr = heart_rate(block[CH["pulse"], -int(s.hr_window_s * fs):], fs, s)
 
     label, qconf, reasons = current.label, current.confidence, list(current.reasons)
+    source = "rules"
+    if quality_model is not None and quality_model.active and label != "unknown":
+        pred = quality_model.predict(raw[:, -n_seg:], fs)       # v1: the trained model decides …
+        if pred is not None:
+            source = "model"
+            m_label, m_conf = pred
+            if label == "sensor_off":                          # … except a hard channel fault
+                if m_label != label:
+                    reasons.append(f"model said {m_label}; a channel fault overrides it")
+            else:
+                if m_label != label:
+                    reasons.append(f"rules said {label}")
+                label, qconf = m_label, round(m_conf, 3)
     belt, acc = rates["belt"].bpm, rates["accel"].bpm
     if label == "clean" and belt is not None and acc is not None and abs(belt - acc) > s.agree_bpm:
         qconf = cfg.quality.disagree_conf
@@ -259,6 +272,7 @@ def analyze(buffers: RingBuffer, end: int, fs: float, cfg: Config,
         "rr_fused": fused.bpm, "rr_conf": fused.confidence, "rr_sources": fused.sources,
         "flags": fused.flags, "rr_prelim": prelim.bpm, "hr": hr.bpm, "hr_conf": hr.confidence,
         "quality": label, "quality_conf": qconf, "quality_reasons": reasons,
+        "quality_source": source, "quality_rules": current.label,
         "channels": current.channels,
         "motion": None if current.motion is None else round(current.motion, 4),
         "clean_fraction": round(sum(g.label == "clean" for g in segments) / len(segments), 3),

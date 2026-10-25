@@ -452,6 +452,25 @@ records the reasoning and smaller choices.
   sessions, possibly with a longer motion step, before trusting real results.
 - Not run against any hardware. The server does not load the model yet (v0 rules still decide).
 
+## Quality model v1 wired in (Sat night)
+
+- `server/quality_model.py`: loads `data/quality_model.joblib` at startup / on reload; falls back to
+  the v0 rules when the file is missing, fails to load, has another format or feature list, or was
+  trained **without any real-wearable recording**. Provenance comes from a new `source` column in
+  record-mode CSVs (`serial:…`/`udp` = real, `simulator:…` = simulated, missing = unknown).
+  `train_quality --simulate` now writes `data/quality_model.simulated.joblib` by default, and even
+  if copied to the active path it is refused (`quality.allow_simulated_model: false`).
+- No model file exists in `data/` now, so the server runs on the rules until real recordings are
+  trained.
+- When active: the model sets each 5 s step's quality label/confidence (alert gate) and also gates
+  the 1 s apnea watch; rules still mask bad segments; a rules channel fault always wins. Cost
+  ~4.7 ms per step per bed (~6 ms/s for six beds).
+- **For Cursor's agent:** the admin "Device & data" page has a new "Signal quality" panel
+  (`web/admin.html`, `paintQuality()` in `web/admin.js`) reading `device.quality_model`: "Trained
+  model (v1) decides signal quality" + training details, or "Rules (v0) decide signal quality" +
+  the reason. Restyle or move it freely; the mock has no `quality_model` yet (shows "—").
+  `POST /api/admin/quality-model/reload` exists if you want a reload button.
+
 ## Clinical app shell contract (§19) — choices made while writing it
 
 - **Both WebSockets:** a light `/ws/ward` (summaries + alert pushes) for the overview and a heavy

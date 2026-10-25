@@ -36,7 +36,7 @@ SUMMARY = {"id", "name", "bed", "device_kind", "scenario", "link_ok", "tier", "t
 STATE = {"patient", "device", "vitals", "tier", "tier_reason", "baseline", "active_alerts", "recent_events",
          "monitors"}
 ADMIN_DEVICE = {"source", "source_status", "link_ok", "stats", "assigned_patient_id", "unassigned_packets",
-                "network", "recording"}
+                "network", "recording", "quality_model"}
 
 RF = {"opioids": True, "supplemental_o2": False, "osa": "none", "age_over_65": False}
 
@@ -268,7 +268,7 @@ def test_record_mode_writes_csv(client):
     assert r["recording"] is None and r["file"].endswith("_clean.csv")
     from server.config import ROOT
     lines = (ROOT / r["file"]).read_text().splitlines()   # absolute paths join as themselves
-    assert lines[0].startswith("device,seq,k,t0_ms,pressure") and len(lines) == 101 and lines[1].endswith(",clean")
+    assert lines[0].startswith("device,seq,k,t0_ms,pressure") and len(lines) == 101 and lines[1].endswith(",clean,udp")
 
 
 def test_demo_reset_and_reseed(client):

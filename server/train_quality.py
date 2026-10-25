@@ -49,12 +49,29 @@ class Window:
     session: str
     t: float              # seconds from the start of the file (for the time-based split)
     frac: float           # position in the file, 0..1
+    origin: str = "unknown"   # real | simulated | unknown (from the recording's source column)
+
+
+def origin_of(source: str) -> str:
+    if source.startswith(("serial", "udp")):
+        return "real"
+    if source.startswith("simulator"):
+        return "simulated"
+    return "unknown"
 
 
 def read_recording(path: Path) -> tuple[str, list[np.ndarray]]:
     """(recording label, contiguous runs as (channels, n) arrays). A seq gap starts a new run."""
+    label, runs, _ = read_recording_with_source(path)
+    return label, runs
+
+
+def read_recording_with_source(path: Path) -> tuple[str, list[np.ndarray], str]:
+    """As read_recording, plus where the data came from (the `source` column; "unknown" for
+    recordings made before it existed)."""
     runs: list[list[list[float]]] = []
     labels: Counter[str] = Counter()
+    sources: Counter[str] = Counter()
     last_seq: int | None = None
     with path.open(newline="") as f:
         for row in csv.DictReader(f):
@@ -65,16 +82,17 @@ def read_recording(path: Path) -> tuple[str, list[np.ndarray]]:
                 last_seq = seq
             runs[-1].append([float(row[c]) for c in CHANNELS])
             labels[row["label"]] += 1
+            sources[row.get("source") or "unknown"] += 1
     if not labels:
-        return "", []
+        return "", [], "unknown"
     label = labels.most_common(1)[0][0]
-    return label, [np.array(r, dtype=float).T for r in runs if r]
+    return label, [np.array(r, dtype=float).T for r in runs if r], sources.most_common(1)[0][0]
 
 
 def windows_from_file(path: Path, cfg: Config, root: Path) -> list[Window]:
     t = cfg.train
     fs = float(cfg.contract.sample_rate_hz)
-    label, runs = read_recording(path)
+    label, runs, source = read_recording_with_source(path)
     cls = t.label_map.get(label)
     if cls is None:
         log.warning("skipping %s: label %r not in train.label_map", path.name, label)
@@ -94,7 +112,7 @@ def windows_from_file(path: Path, cfg: Config, root: Path) -> list[Window]:
         for s0 in range(lo, hi - n_win + 1, hop):
             mid = offset + s0 + n_win / 2
             out.append(Window(window_features(run[:, s0:s0 + n_win], fs, cfg), cls, label, str(rel), session,
-                              (offset + s0) / fs, mid / total))
+                              (offset + s0) / fs, mid / total, origin_of(source)))
         offset += n
     return out
 
@@ -179,13 +197,21 @@ def train(root: Path, out: Path, cfg: Config) -> dict[str, Any]:
                        confusion_matrix=cm.tolist(), test_windows=len(te))
     else:
         print("not enough data for a held-out evaluation; training on everything without one")
+    files_by_origin = Counter(origin for origin in {w.file: w.origin for w in windows}.values())
+    provenance = {"real_files": files_by_origin.get("real", 0), "simulated_files": files_by_origin.get("simulated", 0),
+                  "unknown_files": files_by_origin.get("unknown", 0),
+                  "real_sessions": sorted({w.session for w in windows if w.origin == "real"})}
+    print(f"provenance: {provenance['real_files']} real-wearable files, {provenance['simulated_files']} simulated, "
+          f"{provenance['unknown_files']} unknown source")
+    if provenance["real_files"] == 0:
+        print("NOTE: no real-wearable recordings — the server will NOT activate this model (rules stay on)")
     final = model().fit(matrix(features, windows), [w.label for w in windows])
     importances = sorted(zip(features, final.feature_importances_), key=lambda x: -x[1])[:8]
     print("top features:", ", ".join(f"{f} {v:.2f}" for f, v in importances))
     bundle = {"model": final, "features": features, "classes": classes, "label_map": cfg.train.label_map,
               "window_s": cfg.train.window_s, "trained_t": time.time(), "n_windows": len(windows),
               "class_counts": dict(counts), "files": sorted({w.file for w in windows}), "metrics": metrics,
-              "version": 1}
+              "provenance": provenance, "version": 1}
     out.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(bundle, out)
     print(f"\nsaved {out}")
@@ -193,6 +219,8 @@ def train(root: Path, out: Path, cfg: Config) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- simulated recordings
+
+SIMULATED_MODEL_PATH = "data/quality_model.simulated.joblib"   # never the active model path
 
 SIMULATED = (  # (recording label, scenario, which part of it)
     ("clean", "normal", "all"),
@@ -220,6 +248,7 @@ def simulate_recordings(cfg: Config, out_dir: Path, seed: int = 0, session: str 
         else:
             spans = [(q["start_s"], q["end_s"]) for q in lab["quality"] if q["label"] == part]
         for j, (a, b) in enumerate(spans):
+            rec.source_fn = lambda scenario=scenario: f"simulator:{scenario}"
             rec.start(label, session, f"{i:02d}-{j:02d}")
             for p in sim.packets():
                 t = (sim.n - sim.batch) / sim.fs
@@ -245,10 +274,12 @@ def main(argv: list[str] | None = None) -> None:
     cfg = load_config()
     ap = argparse.ArgumentParser(description="Train the Respiro signal-quality model (v1).")
     ap.add_argument("--dir", default=cfg.train.recordings_dir, help="recordings folder (searched recursively)")
-    ap.add_argument("--out", default=cfg.quality.model_path)
+    ap.add_argument("--out", default=None, help=f"default {cfg.quality.model_path} "
+                    f"({SIMULATED_MODEL_PATH} with --simulate)")
     ap.add_argument("--simulate", action="store_true", help="train on simulator-made recordings (no hardware)")
     args = ap.parse_args(argv)
-    out = ROOT / args.out if not Path(args.out).is_absolute() else Path(args.out)
+    out_arg = args.out or (SIMULATED_MODEL_PATH if args.simulate else cfg.quality.model_path)
+    out = ROOT / out_arg if not Path(out_arg).is_absolute() else Path(out_arg)
     if args.simulate:
         tmp = Path(tempfile.mkdtemp(prefix="bw-sim-recordings-"))
         print(f"writing simulated recordings to {tmp}")
