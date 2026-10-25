@@ -387,6 +387,10 @@ records the reasoning and smaller choices.
   tiles Urgent ×2 (beds 3, 6 — apneas in progress, tier 3 at ~+14 s and ~+25 s), Watch ×1 (bed 5,
   8.5 → 8.0/min), and tier 0 for bed 1 (stable), bed 2 (motion, smart silent) and bed 4.
   `tests/test_ward_mix.py` asserts the mix in normal, public and public-after-reset modes.
+- **Redeployed** to the public demo and reseeded (`/api/demo/reset` with `reseed_ward`): within 30 s
+  the live ward showed bed 5 slowing (8.4 → 8.1/min, tier 1) at +5 s, bed 6 central apnea tier 3 at
+  +15 s, bed 2 in motion, bed 3 obstructive apnea tier 3 by +28 s, beds 1 and 4 stable — the same
+  as the local test.
 - The mix is guaranteed for the first 30 s after a start/reset; later it drifts as each scenario
   loops (in the public demo, latched tier-3 alerts stay until someone acknowledges them).
 
