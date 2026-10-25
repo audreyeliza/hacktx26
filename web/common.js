@@ -5,6 +5,73 @@ export { api, openSocket, ApiError, USE_MOCK, SCENARIOS, RECORD_LABELS } from "/
 /** Product name. Rename here only. */
 export const PRODUCT_NAME = "Respiro";
 
+const SETTINGS_KEY = "respiro.settings";
+const SETTING_DEFAULTS = { theme: "light", text: "normal", motion: "full", density: "comfortable" };
+
+export function getSettings() {
+  try {
+    return { ...SETTING_DEFAULTS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
+  } catch { return { ...SETTING_DEFAULTS }; }
+}
+
+export function applySettings(s = getSettings()) {
+  const root = document.documentElement;
+  root.dataset.theme = s.theme;
+  root.dataset.text = s.text;
+  root.dataset.motion = s.motion;
+  root.dataset.density = s.density;
+}
+
+function saveSettings(s) {
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch { /* private mode: applies for this page only */ }
+  applySettings(s);
+}
+
+applySettings();
+
+const SETTING_GROUPS = [
+  { key: "theme", label: "Appearance", opts: [["light", "Light"], ["dark", "Dark"], ["system", "Match device"]] },
+  { key: "text", label: "Text size", opts: [["normal", "Normal"], ["large", "Large"], ["xlarge", "Extra large"]] },
+  { key: "density", label: "Ward list", opts: [["comfortable", "Comfortable"], ["compact", "Compact"]] },
+  { key: "motion", label: "Animations", opts: [["full", "On"], ["reduced", "Reduced"]] },
+];
+
+export function openSettings() {
+  let dlg = document.getElementById("settings");
+  if (!dlg) {
+    dlg = document.createElement("dialog");
+    dlg.id = "settings";
+    dlg.className = "settings";
+    dlg.setAttribute("aria-labelledby", "settings-title");
+    document.body.append(dlg);
+    dlg.addEventListener("change", (ev) => {
+      const input = ev.target.closest("input[name]");
+      if (input) saveSettings({ ...getSettings(), [input.name]: input.value });
+    });
+    dlg.addEventListener("click", (ev) => {
+      if (ev.target === dlg || ev.target.closest("[data-close]")) dlg.close();
+      if (ev.target.closest("[data-reset]")) { saveSettings({ ...SETTING_DEFAULTS }); renderSettings(dlg); }
+    });
+  }
+  renderSettings(dlg);
+  dlg.showModal();
+}
+
+function renderSettings(dlg) {
+  const s = getSettings();
+  dlg.innerHTML = `
+    <h2 id="settings-title">Settings</h2>
+    <p class="fine">Saved on this device only. These change how the app looks, never how alarms work.</p>
+    ${SETTING_GROUPS.map((g) => `
+      <fieldset><legend>${g.label}</legend><div class="opts">
+        ${g.opts.map(([v, l]) => `<label><input type="radio" name="${g.key}" value="${v}" ${s[g.key] === v ? "checked" : ""}>${l}</label>`).join("")}
+      </div></fieldset>`).join("")}
+    <div class="foot">
+      <button type="button" class="quiet" data-reset>Reset to defaults</button>
+      <button type="button" class="primary" data-close>Done</button>
+    </div>`;
+}
+
 export const TIER_NAME = ["Stable", "Watch", "Notify", "Urgent"];
 
 const ROLE_LABEL = { nurse: "Nurse", physician: "Physician", admin: "Admin" };
@@ -132,7 +199,7 @@ export function renderChrome(user) {
   ];
   const role = ROLE_LABEL[user.role] || user.role;
   el.innerHTML = `
-    <a class="brand" href="/">${esc(PRODUCT_NAME)}</a>
+    <a class="brand" href="/"><img src="/static/logo.png" alt="${esc(PRODUCT_NAME)}"></a>
     <nav class="nav" aria-label="Sections">
       ${links.filter((l) => l.show).map((l) => `
         <a href="${l.href}" ${l.on ? 'aria-current="page"' : ""}>${l.label}</a>
@@ -140,8 +207,10 @@ export function renderChrome(user) {
     </nav>
     <div class="session">
       <span class="session__who">${esc(user.display_name)} <span class="session__role">(${esc(role)})</span></span>
+      <button type="button" class="icon-btn settings-btn" data-settings aria-label="Settings" title="Settings">⚙</button>
       <button type="button" class="icon-btn" data-signout aria-label="Sign out" title="Sign out">⏏</button>
     </div>`;
+  el.querySelector("[data-settings]").addEventListener("click", openSettings);
   el.querySelector("[data-signout]").addEventListener("click", async () => {
     await api("/api/auth/logout", { method: "POST", redirectOn401: false });
     location.href = "/";
@@ -177,7 +246,8 @@ export function showError(el, err) {
   if (!el) return;
   if (!err) { el.hidden = true; el.textContent = ""; return; }
   el.hidden = false;
-  el.textContent = err.detail || err.message || "Something went wrong";
+  const detail = Array.isArray(err.detail) ? err.detail.map((d) => d.msg || d).join("; ") : err.detail;
+  el.textContent = detail || err.message || "Something went wrong";
 }
 
 export function admissionFields(patient, liveHolder, opts = {}) {
