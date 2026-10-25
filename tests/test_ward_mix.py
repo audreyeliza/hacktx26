@@ -23,7 +23,8 @@ def first_30_s(cfg, public: bool, reset: bool = False):
             if rt.sim:
                 await rt.sim.stop()
         seen = {pid: {"rr": [], "quality": set(), "tiers": set(), "kinds": set(), "apnea_live": False,
-                      "events": len(rt.event_log)} for pid, rt in ward.runtimes.items()}
+                      "events": len(rt.event_log), "at_load": dict(rt.vitals or {})}
+                for pid, rt in ward.runtimes.items()}
         t0 = time.time()
         for k in range(60):                          # 30 s = 60 packets per bed
             for rt in ward.runtimes.values():
@@ -70,3 +71,13 @@ def test_ward_shows_a_mix_within_30_s(cfg, public, reset):
     assert 3 in by["central"]["tiers"] and 3 in by["obstructive"]["tiers"]
     # the ward listing itself shows more than one tier
     assert len({p["tier"] for p in listing["patients"]}) >= 3
+
+
+@pytest.mark.parametrize("reset", [False, True])
+def test_no_public_tile_starts_blank(cfg, reset):
+    """Every bed of the public ward shows a breathing rate and heart rate the moment it appears."""
+    cfg = with_overrides(cfg, store={"path": ":memory:"})
+    seen, _ = first_30_s(cfg, public=True, reset=reset)
+    for s in seen.values():
+        v = s["at_load"]
+        assert v.get("rr_fused") is not None and v.get("hr") is not None, (s["scenario"], v.get("flags"))

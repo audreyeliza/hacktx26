@@ -210,7 +210,8 @@ ward:
   ward_push_s: 2.0            # /ws/ward summary push at most this often
   backfill_s: 150             # on ward start/reset, simulated beds get this much history at once
   # start_s on a simulated device = where the bed is in its scenario when the ward appears (after
-  # the backfilled history). Chosen so the first 30 s show a mix: stable, motion, slowing, apneas.
+  # the backfilled history). Chosen so the first 30 s show a mix (stable, motion, slowing, apneas)
+  # and every tile has a rate when the ward appears (no motion burst inside the first window).
   seed:                       # created when the patients table is empty; names are fictional
     - bed: "1"
       name: Morgan Ellis
@@ -219,7 +220,7 @@ ward:
       notes: Post-op day 2, oral opioids
     - bed: "2"
       name: Riley Chen
-      device: {kind: simulator, scenario: motion, start_s: 165}
+      device: {kind: simulator, scenario: motion, start_s: 110}
       risk_factors: {opioids: true, supplemental_o2: false, osa: none, age_over_65: true}
       notes: Restless overnight
     - bed: "3"
@@ -267,7 +268,7 @@ llm:                          # AGENTS.md §10 — Google Gemini; key from the e
 public_demo:                  # AGENTS.md §20 — on with env PUBLIC_DEMO=1 (or enabled: true)
   enabled: false
   live_bed_scenario: demo     # the live bed (wearable) becomes this looping simulator
-  live_bed_start_s: 375       # ... starting just past the demo's motion block, as the slowing begins
+  live_bed_start_s: 405       # ... just past the demo's motion block (clean rate window), as the slowing begins
   http_host: 127.0.0.1        # only reachable through the HTTPS reverse proxy (Caddy)
   proxy_ips: 127.0.0.1        # trusted X-Forwarded-For / -Proto sources
   reset_cooldown_s: 120       # demo reset at most this often (whole site)

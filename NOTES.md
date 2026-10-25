@@ -391,6 +391,9 @@ records the reasoning and smaller choices.
   the live ward showed bed 5 slowing (8.4 → 8.1/min, tier 1) at +5 s, bed 6 central apnea tier 3 at
   +15 s, bed 2 in motion, bed 3 obstructive apnea tier 3 by +28 s, beds 1 and 4 stable — the same
   as the local test.
+- **No blank tiles at load:** bed 2 moved to 110 s (burst at 120 s) and bed 4 to 405 s so no bed's
+  first 60 s window contains a motion burst (masked > 20 % → no rate). Every tile has rate + HR when
+  the ward appears; bed 2 then goes to motion ~10 s later (rate withheld during it, by design).
 - The mix is guaranteed for the first 30 s after a start/reset; later it drifts as each scenario
   loops (in the public demo, latched tier-3 alerts stay until someone acknowledges them).
 
