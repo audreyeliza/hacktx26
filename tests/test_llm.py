@@ -288,3 +288,41 @@ def test_clear_summaries_command(cfg, tmp_path, capsys):
     main(["--db", str(db), "--clear-summaries"])
     assert "deleted 1 cached summaries" in capsys.readouterr().out
     assert Store(db).cached_summary("p-test", "overnight") is None
+
+
+
+def test_chart_axis_labels_are_distinct_local_minutes():
+    from zoneinfo import ZoneInfo
+    from matplotlib.figure import Figure
+    from server.llm import time_axis
+    tz = ZoneInfo("America/Chicago")
+    for span in (20, 90, 600, 3 * 3600):
+        fig = Figure(figsize=(7, 2.8), dpi=110)
+        ax = fig.add_subplot(1, 1, 1)
+        end = 1792890000.0
+        time_axis(ax, end - span, end, tz)
+        fig.canvas.draw() if hasattr(fig.canvas, "draw") else None
+        labels = [t.get_text() for t in ax.get_xticklabels() if t.get_text()]
+        assert len(labels) >= 3 and len(set(labels)) == len(labels), (span, labels)
+        assert all(lbl.endswith(("AM", "PM")) for lbl in labels)
+
+
+def test_backfilled_history_counts_as_part_of_the_stay(cfg):
+    """After a (re)seed, summaries see the backfilled history, not just the first live sample."""
+    import asyncio as aio
+    from server.ingest import Ingest
+    from server.patients import Ward
+    from tests.conftest import with_overrides
+    c = with_overrides(cfg, store={"path": ":memory:"})
+
+    async def go():
+        ward = Ward(c, Store(":memory:"), Ingest(c), public=True)
+        await ward.start()
+        rt = ward.runtimes["p1"]
+        patient = ward.get("p1")
+        d = build_digest(c, ward.store, patient, rt.now_t(), "overnight")
+        await ward.stop()
+        return patient, rt, d
+    patient, rt, d = aio.run(go())
+    assert patient["admitted_t"] <= rt.stream.sample_time(0) + 1
+    assert d["time_range"]["minutes"] >= 2 and d["breathing_rate_per_min"]["stats"]["n"] >= 20

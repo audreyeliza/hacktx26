@@ -302,6 +302,19 @@ def build_digest(cfg: Config, store: Store, patient: dict[str, Any], now_t: floa
 
 # --------------------------------------------------------------------------- chart
 
+CHART_MIN_SPAN_S = 300   # short stays still get a readable axis (distinct minute labels)
+
+
+def time_axis(ax: Any, t_start: float, t_end: float, tz: ZoneInfo) -> None:
+    """Local-clock x axis from t_start to t_end (at least CHART_MIN_SPAN_S wide)."""
+    import matplotlib.dates as mdates
+    t_start = min(t_start, t_end - CHART_MIN_SPAN_S)
+    ax.set_xlim(mdates.date2num(datetime.fromtimestamp(t_start, tz)),
+                mdates.date2num(datetime.fromtimestamp(t_end, tz)))
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator(tz=tz, minticks=3, maxticks=7,
+                                                      interval_multiples=True))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%-I:%M %p", tz=tz))
+
 EVENT_COLORS = {"obstructive": "#e07b24", "central": "#3b6ea8", "mixed": "#8e5ea2", "hypopnea": "#2a9d8f"}
 
 
@@ -339,8 +352,7 @@ def render_chart(cfg: Config, store: Store, patient: dict[str, Any], now_t: floa
                 markersize=7, linestyle="none")
     finite = [y for y in ys if np.isfinite(y)]
     ax.set_ylim(0, max(25.0, max(finite) + 3) if finite else 25.0)
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%-I:%M %p", tz=tz))
-    ax.xaxis.set_major_locator(mdates.AutoDateLocator(tz=tz, minticks=3, maxticks=7))
+    time_axis(ax, t0, now_t, tz)
     ax.set_xlabel(f"local time, {datetime.fromtimestamp(t0, tz).strftime('%Z')} (triangles: alerts tier 2-3)")
     ax.set_ylabel("breaths/min")
     ax.set_title(f"Bed {patient['bed']} — breathing rate, {_stamp(t0, tz)} (BreathWatch prototype)", fontsize=9)

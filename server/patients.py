@@ -157,6 +157,11 @@ class PatientRuntime:
             self.stream.handle_packet(sim.next_packet(), addr="simulator",
                                       arrival=now - (n - 1 - k) * period, validated=True)
         self.process_pending(max_ticks=n * 2)
+        start = self.stream.sample_time(0)
+        if start is not None and (self.patient.get("admitted_t") or now) > start:
+            # the history is part of this stay: summaries and the chart start from it
+            self.patient = {**self.patient, "admitted_t": start}
+            self.ward.store.save_patient(self.patient)
 
     async def stop(self) -> None:
         if self.sim is not None:
